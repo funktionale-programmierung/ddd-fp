@@ -1,4 +1,4 @@
--- this or type signature for getProductAmount
+-- this or type signature for getProductMenge
 -- {-# LANGUAGE FlexibleContexts #-}
 import Data.Map as Map
 import qualified Data.Map.Strict (Map)
@@ -7,126 +7,125 @@ import qualified Control.Monad.Reader (Reader)
 import Control.Monad.State.Lazy as State
 import qualified Control.Monad.State.Lazy (State)
 
-newtype Color = Color String deriving (Eq, Show, Ord)
+newtype Farbe = Farbe String deriving (Eq, Show, Ord)
 newtype PH = PH Double deriving (Eq, Show, Ord)
 
-data HairType = Oily | Dry | Normal | Dandruff
+data Haartyp = Fettig | Trocken | Normal | Schuppen
   deriving (Eq, Show, Ord)
 
-data SimpleShowerProduct =
-    Soap Color PH
-  | Shampoo Color HairType
+data Grundbestandteil =
+    Tensid Farbe PH
+  | Pflegestoff Farbe Haartyp
   deriving (Eq, Show, Ord)
   
-data ShowerProduct =
-    Simple SimpleShowerProduct
-  | Mixture Double ShowerProduct Double ShowerProduct
+data ReinigungsProdukt =
+    Einfach Grundbestandteil
+  | Gemisch Double ReinigungsProdukt Double ReinigungsProdukt
   deriving (Eq, Show, Ord)
 
-soapProportion :: ShowerProduct -> Double
-soapProportion (Simple (Soap _ _)) = 1.0
-soapProportion (Simple (Shampoo _ _)) = 0.0
-soapProportion (Mixture p1 sp1 p2 sp2) =
-  p1 * (soapProportion sp1) + p2 * (soapProportion sp2)
+tensidAnteil :: ReinigungsProdukt -> Double
+tensidAnteil (Einfach (Tensid _ _)) = 1.0
+tensidAnteil (Einfach (Pflegestoff _ _)) = 0.0
+tensidAnteil (Gemisch p1 sp1 p2 sp2) =
+  p1 * (tensidAnteil sp1) + p2 * (tensidAnteil sp2)
 
-decomposeShowerProduct :: ShowerProduct -> Map SimpleShowerProduct Double
-decomposeShowerProduct (Simple s) = Map.singleton s 1.0
-decomposeShowerProduct (Mixture p1 sp1 p2 sp2) =
-  let d1 = fmap (\ p -> p*p1) (decomposeShowerProduct sp1)
-      d2 = fmap (\ p -> p*p2) (decomposeShowerProduct sp2)
+reinigungsProduktBestandteile :: ReinigungsProdukt -> Map Grundbestandteil Double
+reinigungsProduktBestandteile (Einfach s) = Map.singleton s 1.0
+reinigungsProduktBestandteile (Gemisch p1 sp1 p2 sp2) =
+  let d1 = fmap (\ p -> p*p1) (reinigungsProduktBestandteile sp1)
+      d2 = fmap (\ p -> p*p2) (reinigungsProduktBestandteile sp2)
   in Map.unionWith (+) d1 d2
 
 newtype Id = Id Int deriving Eq
 
-data Entity state = Entity Id state
+data Entitaet state = Entitaet Id state
 
-instance Eq (Entity a) where
-  (Entity id1 _) == (Entity id2 _) = id1 == id2
+instance Eq (Entitaet a) where
+  (Entitaet id1 _) == (Entitaet id2 _) = id1 == id2
   
-newtype Amount = Amount Double deriving (Eq, Show, Ord)
+newtype Menge = Menge Double deriving (Eq, Show, Ord)
 
-zero = Amount 0
+zero = Menge 0
 
-type Stock = Map SimpleShowerProduct Amount
+type Vorrat = Map Grundbestandteil Menge
 
 
--- figure out how much of a simple product is in explicit stock
-productAmount :: Stock -> SimpleShowerProduct -> Amount
-productAmount st ssp =
+grundbestandteilVorrat :: Vorrat -> Grundbestandteil -> Menge
+grundbestandteilVorrat st ssp =
      case Map.lookup ssp st of
        Nothing -> zero
        Just a -> a
 
-newtype ProductName = ProductName String
+newtype ProduktName = ProduktName String
   deriving (Eq, Show, Ord)
-type Order = Entity (ProductName, Amount)
+type Bestellung = Entitaet (ProduktName, Menge)
 
-type Catalog = Map ProductName ShowerProduct
+type Katalog = Map ProduktName ReinigungsProdukt
 
-type ProductComputation a = Reader Catalog a
+type ProduktErmittlung a = Reader Katalog a
 
--- figure out map of required amounts in an order
-orderAmounts :: Order -> Catalog -> Map SimpleShowerProduct Amount
-orderAmounts (Entity _ (n, Amount a)) cat =
+-- die benötigten Mengen für eine Bestellung
+benoetigteMengen :: Bestellung -> Katalog -> Map Grundbestandteil Menge
+benoetigteMengen (Entitaet _ (n, Menge a)) cat =
   case Map.lookup n cat of
     Nothing -> Map.empty
     Just sp ->
-      fmap (\ p -> Amount (a * p)) (decomposeShowerProduct sp)
+      fmap (\ p -> Menge (a * p)) (reinigungsProduktBestandteile sp)
 
--- figure out map of required amounts in an order, monadic
-askOrderAmounts :: Order -> ProductComputation (Map SimpleShowerProduct Amount)
-askOrderAmounts ord =
+-- die benötigten Mengen für eine Bestellung (ohne Kenntnis des Katalogs)
+ermittleBenoetigteMengen :: Bestellung -> ProduktErmittlung (Map Grundbestandteil Menge)
+ermittleBenoetigteMengen ord =
   do cat <- Reader.ask
-     return (orderAmounts ord cat)
+     return (benoetigteMengen ord cat)
 
--- figure out whether a bunch of product amounts are available in explicit stock
-areAmountsInStock :: Stock -> Map SimpleShowerProduct Amount -> Bool
-areAmountsInStock st ams =
-  Map.foldrWithKey (\ ssp am av -> av && (productAmount st ssp >= am)) True ams
+-- sind die angegebenen Mengen bevorratet?
+sindGrundbestandteileBevorratet :: Vorrat -> Map Grundbestandteil Menge -> Bool
+sindGrundbestandteileBevorratet st ams =
+  Map.foldrWithKey (\ ssp am av -> av && (grundbestandteilVorrat st ssp >= am)) True ams
 
--- figure out if amounts in an order are available in explicit stock
-areOrderAmountsInStock :: Stock -> Order -> Catalog -> Bool
-areOrderAmountsInStock st o cat =
-  areAmountsInStock st (orderAmounts o cat)
+-- sind die für die Bestellung benötigten Mengen bevorratet?
+sindGrundbestandteileFuerBestellungBevorratet :: Vorrat -> Bestellung -> Katalog -> Bool
+sindGrundbestandteileFuerBestellungBevorratet st o cat =
+  sindGrundbestandteileBevorratet st (benoetigteMengen o cat)
 
--- check is stock is valid - i.e. no negative amounts
-isStockValid :: Stock -> Bool
-isStockValid st =
-  Map.foldr (\ (Amount a) v  -> v && (a >= 0)) True st
+-- Invariante für den Vorrat
+istVorratKorrekt :: Vorrat -> Bool
+istVorratKorrekt st =
+  Map.foldr (\ (Menge a) v  -> v && (a >= 0)) True st
 
--- remove one product's amount from the stock
-stockRemoveAmount :: Stock -> SimpleShowerProduct -> Amount -> Stock
-stockRemoveAmount st ssp (Amount a) =
+-- ein Produkt aus dem Vorrat entnehmen
+entnehmeGrundbestandteil :: Vorrat -> Grundbestandteil -> Menge -> Vorrat
+entnehmeGrundbestandteil st ssp (Menge a) =
   Map.alter (\am0 -> case am0 of
-                 Nothing -> Just (Amount (- a))
-                 Just (Amount a0) -> Just (Amount (a0 - a)))
+                 Nothing -> Just (Menge (- a))
+                 Just (Menge a0) -> Just (Menge (a0 - a)))
     ssp st
 
--- remove a bunch of product amounts from the stock
-stockRemoveAmounts :: Stock -> Map SimpleShowerProduct Amount -> Stock
-stockRemoveAmounts st ams =
-  Map.foldrWithKey (\ ssp am st -> stockRemoveAmount st ssp am) st ams
+-- mehrere Produkte aus dem Vorrat entnehmen
+entnehmeGrundbestandteile :: Vorrat -> Map Grundbestandteil Menge -> Vorrat
+entnehmeGrundbestandteile st ams =
+  Map.foldrWithKey (\ ssp am st -> entnehmeGrundbestandteil st ssp am) st ams
 
 -- not sure this is the right thing wrt. DDD
-type StockComputation a = State Stock a
+type VorratsErmittlung a = State Vorrat a
 
--- figure out how much of a product is in implicit stock
-getProductAmount :: SimpleShowerProduct -> StockComputation Amount
-getProductAmount ssp =
+-- wie viel eines Grundbestandteils ist in unserem Vorrat?
+getGrundbestandteilMenge :: Grundbestandteil -> VorratsErmittlung Menge
+getGrundbestandteilMenge ssp =
   do stock <- State.get
-     return (productAmount stock ssp)
+     return (grundbestandteilVorrat stock ssp)
 
 data Event =
-    OrderReceived Order
-  | SimpleProductRemoved SimpleShowerProduct Amount
-  | OrderShipped Order
+    BestellungEingegangen Bestellung
+  | GrundbestandteilEntnommen Grundbestandteil Menge
+  | BestellungVersandt Bestellung
 
--- process an order into events
-processOrder :: Order -> ProductComputation [Event]
-processOrder ord =
-  do ams <- askOrderAmounts ord
-     let evs = fmap (uncurry SimpleProductRemoved) (toList ams)
-     return ([OrderReceived ord] ++ evs ++ [OrderShipped ord])
+-- eine Bestellung verarbeiten
+verarbeiteBestellung :: Bestellung -> ProduktErmittlung [Event]
+verarbeiteBestellung ord =
+  do ams <- ermittleBenoetigteMengen ord
+     let evs = fmap (uncurry GrundbestandteilEntnommen) (toList ams)
+     return ([BestellungEingegangen ord] ++ evs ++ [BestellungVersandt ord])
 
 -- Repository / Monad for contextual information
 
