@@ -129,9 +129,14 @@ verarbeiteBestellung ord =
 
 -- Repository / Monad for contextual information
 
--- Aggregate
-
 -- commands: orders
+data Befehl =
+    SendeBestellung ProduktName Menge
+
+-- Aggregate
+-- verarbeiteBestellung :: Befehl -> ProduktErmittlung [Event]
+-- verarbeiteBestellung (SendeBestellung product amount) = processOrder (Entitaet (product, amount))
+-- verarbeiteBestellung _ = []
 
 -- process events
 
