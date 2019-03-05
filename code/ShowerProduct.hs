@@ -120,12 +120,16 @@ data Event =
   | GrundbestandteilEntnommen Grundbestandteil Menge
   | BestellungVersandt Bestellung
 
+
+entnehmeGrundbestandteileFuerBestellung :: Map Grundbestandteil Menge -> [Event]
+entnehmeGrundbestandteileFuerBestellung bestandteile =
+    fmap (uncurry GrundbestandteilEntnommen) (toList bestandteile)
+
 -- eine Bestellung verarbeiten
 verarbeiteBestellung :: Bestellung -> ProduktErmittlung [Event]
-verarbeiteBestellung ord =
-  do ams <- ermittleBenoetigteMengen ord
-     let evs = fmap (uncurry GrundbestandteilEntnommen) (toList ams)
-     return ([BestellungEingegangen ord] ++ evs ++ [BestellungVersandt ord])
+verarbeiteBestellung best =
+  do teile <- ermittleBenoetigteMengen best
+     return ([BestellungEingegangen best] ++ (entnehmeGrundbestandteileFuerBestellung teile) ++ [BestellungVersandt best])
 
 -- Repository / Monad for contextual information
 
