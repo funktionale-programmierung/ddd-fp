@@ -1,9 +1,15 @@
--- this or type signature for getProductMenge
--- {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+
 import Data.Map as Map
 import qualified Data.Map.Strict (Map)
-import Control.Monad.Reader as Reader
-import qualified Control.Monad.Reader (Reader)
+import Control.Monad.Identity
+
+import Control.Monad.Reader
+
+import Control.Monad.Writer
+
 import Control.Monad.State.Lazy as State
 import qualified Control.Monad.State.Lazy (State)
 
@@ -62,7 +68,8 @@ type Bestellung = Entitaet (ProduktName, Menge)
 
 type Katalog = Map ProduktName ReinigungsProdukt
 
-type ProduktErmittlung a = Reader Katalog a
+type ProduktErmittlungT m = ReaderT Katalog m
+type ProduktErmittlung m = MonadReader Katalog m
 
 -- die benötigten Mengen für eine Bestellung
 benoetigteMengen :: Bestellung -> Katalog -> Map Grundbestandteil Menge
@@ -73,9 +80,9 @@ benoetigteMengen (Entitaet _ (n, Menge a)) cat =
       fmap (\ p -> Menge (a * p)) (reinigungsProduktBestandteile sp)
 
 -- die benötigten Mengen für eine Bestellung (ohne Kenntnis des Katalogs)
-ermittleBenoetigteMengen :: Bestellung -> ProduktErmittlung (Map Grundbestandteil Menge)
+ermittleBenoetigteMengen :: ProduktErmittlung m => Bestellung -> m (Map Grundbestandteil Menge)
 ermittleBenoetigteMengen ord =
-  do cat <- Reader.ask
+  do cat <- ask
      return (benoetigteMengen ord cat)
 
 -- sind die angegebenen Mengen bevorratet?
@@ -125,28 +132,51 @@ entnehmeGrundbestandteileFuerBestellung :: Map Grundbestandteil Menge -> [Event]
 entnehmeGrundbestandteileFuerBestellung bestandteile =
     fmap (uncurry GrundbestandteilEntnommen) (toList bestandteile)
 
--- eine Bestellung verarbeiten
-verarbeiteBestellung :: Bestellung -> ProduktErmittlung [Event]
+-- REPL usability
+-- examples
+
+verarbeiteBestellung :: ProduktErmittlung m => Bestellung -> m [Event]
 verarbeiteBestellung best =
   do teile <- ermittleBenoetigteMengen best
      return ([BestellungEingegangen best] ++ (entnehmeGrundbestandteileFuerBestellung teile) ++ [BestellungVersandt best])
-
--- Repository / Monad for contextual information
 
 -- commands: orders
 data Befehl =
     SendeBestellung ProduktName Menge
 
--- Aggregate
--- verarbeiteBestellung :: Befehl -> ProduktErmittlung [Event]
--- verarbeiteBestellung (SendeBestellung product amount) = processOrder (Entitaet (product, amount))
--- verarbeiteBestellung _ = []
+type EventAggregatorT m = WriterT [Event] m
+type EventAggregator m = MonadWriter [Event] m
 
--- process events
+meldeEvent :: EventAggregator m => Event -> m ()
+meldeEvent ev = tell [ev]
 
--- contextual information: amounts of soap, shampoo won't work -
--- different soaps and different shampoos => map?
+meldeEvents :: EventAggregator m => [Event] -> m ()
+meldeEvents evs = tell evs
 
--- Aggregate validation?
+type EntitaetGeneratorT m = StateT Int m
+type EntitaetGenerator m = MonadState Int m
 
--- 
+neueId :: EntitaetGenerator m => m Id
+neueId =
+  do s <- get
+     put (s + 1)
+     return (Id s)
+     
+neueEntitaet :: EntitaetGenerator m => a -> m (Entitaet a)
+neueEntitaet st =
+   do id <- neueId
+      return (Entitaet id st)
+
+type BefehlVerarbeitung a = EntitaetGeneratorT (EventAggregatorT (ProduktErmittlungT Identity)) a
+
+verarbeiteBefehl :: (EntitaetGenerator m, EventAggregator m, ProduktErmittlung m) => Befehl -> m ()
+verarbeiteBefehl (SendeBestellung pn m) =
+   do b <- neueEntitaet (pn, m)
+      evs <- verarbeiteBestellung b
+      meldeEvents evs
+
+laufVerarbeiteBefehl :: Katalog -> BefehlVerarbeitung a -> Id -> (a, Id, [Event])
+laufVerarbeiteBefehl kat bv (Id id) =
+  let ((ret, id), evs) = runReader (runWriterT (runStateT bv id)) kat
+  in (ret, Id id, evs)
+
