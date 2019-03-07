@@ -6,9 +6,11 @@ import Data.Map as Map
 import qualified Data.Map.Strict (Map)
 import Control.Monad.Identity
 
-import Control.Monad.Reader
-
-import Control.Monad.Writer
+import qualified Control.Monad.Reader (ReaderT)
+import Control.Monad.Reader as Reader
+  
+import qualified Control.Monad.Writer (WriterT)
+import Control.Monad.Writer as Writer
 
 import Control.Monad.State.Lazy as State
 import qualified Control.Monad.State.Lazy (State)
@@ -82,7 +84,7 @@ benoetigteMengen (Entitaet _ (n, Menge a)) cat =
 -- die benötigten Mengen für eine Bestellung (ohne Kenntnis des Katalogs)
 ermittleBenoetigteMengen :: ProduktErmittlung m => Bestellung -> m (Map Grundbestandteil Menge)
 ermittleBenoetigteMengen ord =
-  do cat <- ask
+  do cat <- Reader.ask
      return (benoetigteMengen ord cat)
 
 -- sind die angegebenen Mengen bevorratet?
@@ -148,18 +150,18 @@ type EventAggregatorT m = WriterT [Event] m
 type EventAggregator m = MonadWriter [Event] m
 
 meldeEvent :: EventAggregator m => Event -> m ()
-meldeEvent ev = tell [ev]
+meldeEvent ev = Writer.tell [ev]
 
 meldeEvents :: EventAggregator m => [Event] -> m ()
-meldeEvents evs = tell evs
+meldeEvents evs = Writer.tell evs
 
 type EntitaetGeneratorT m = StateT Int m
 type EntitaetGenerator m = MonadState Int m
 
 neueId :: EntitaetGenerator m => m Id
 neueId =
-  do s <- get
-     put (s + 1)
+  do s <- State.get
+     State.put (s + 1)
      return (Id s)
      
 neueEntitaet :: EntitaetGenerator m => a -> m (Entitaet a)
