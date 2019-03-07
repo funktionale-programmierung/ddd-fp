@@ -59,10 +59,10 @@ type Vorrat = Map Grundbestandteil Menge
 
 
 grundbestandteilVorrat :: Vorrat -> Grundbestandteil -> Menge
-grundbestandteilVorrat st ssp =
-     case Map.lookup ssp st of
+grundbestandteilVorrat vorrat grundbestandteil =
+     case Map.lookup grundbestandteil vorrat of
        Nothing -> zero
-       Just a -> a
+       Just menge -> menge
 
 newtype ProduktName = ProduktName String
   deriving (Eq, Show, Ord)
@@ -75,54 +75,58 @@ type ProduktErmittlung m = MonadReader Katalog m
 
 -- die benötigten Mengen für eine Bestellung
 benoetigteMengen :: Bestellung -> Katalog -> Map Grundbestandteil Menge
-benoetigteMengen (Entitaet _ (n, Menge a)) cat =
-  case Map.lookup n cat of
+benoetigteMengen (Entitaet _ (produktname, Menge menge)) katalog =
+  case Map.lookup produktname katalog of
     Nothing -> Map.empty
-    Just sp ->
-      fmap (\ p -> Menge (a * p)) (reinigungsProduktBestandteile sp)
+    Just reinigungsprodukt ->
+      fmap (\ anteil -> Menge (menge * anteil)) (reinigungsProduktBestandteile reinigungsprodukt)
 
 -- die benötigten Mengen für eine Bestellung (ohne Kenntnis des Katalogs)
 ermittleBenoetigteMengen :: ProduktErmittlung m => Bestellung -> m (Map Grundbestandteil Menge)
-ermittleBenoetigteMengen ord =
-  do cat <- Reader.ask
-     return (benoetigteMengen ord cat)
+ermittleBenoetigteMengen bestellung =
+  do katalog <- Reader.ask
+     return (benoetigteMengen bestellung katalog)
 
 -- sind die angegebenen Mengen bevorratet?
 sindGrundbestandteileBevorratet :: Vorrat -> Map Grundbestandteil Menge -> Bool
-sindGrundbestandteileBevorratet st ams =
-  Map.foldrWithKey (\ ssp am av -> av && (grundbestandteilVorrat st ssp >= am)) True ams
+sindGrundbestandteileBevorratet vorrat mengen =
+  Map.foldrWithKey (\ grundbestandteil menge istBevorratet ->
+                      istBevorratet && (grundbestandteilVorrat vorrat grundbestandteil >= menge))
+    True mengen
 
 -- sind die für die Bestellung benötigten Mengen bevorratet?
 sindGrundbestandteileFuerBestellungBevorratet :: Vorrat -> Bestellung -> Katalog -> Bool
-sindGrundbestandteileFuerBestellungBevorratet st o cat =
-  sindGrundbestandteileBevorratet st (benoetigteMengen o cat)
+sindGrundbestandteileFuerBestellungBevorratet vorrat bestellung katalog =
+  sindGrundbestandteileBevorratet vorrat (benoetigteMengen bestellung katalog)
 
 -- Invariante für den Vorrat
 istVorratKorrekt :: Vorrat -> Bool
-istVorratKorrekt st =
-  Map.foldr (\ (Menge a) v  -> v && (a >= 0)) True st
+istVorratKorrekt vorrat =
+  Map.foldr (\ (Menge menge) istKorrekt  -> istKorrekt && (menge >= 0)) True vorrat
 
 -- ein Produkt aus dem Vorrat entnehmen
 entnehmeGrundbestandteil :: Vorrat -> Grundbestandteil -> Menge -> Vorrat
-entnehmeGrundbestandteil st ssp (Menge a) =
-  Map.alter (\am0 -> case am0 of
-                 Nothing -> Just (Menge (- a))
-                 Just (Menge a0) -> Just (Menge (a0 - a)))
-    ssp st
+entnehmeGrundbestandteil vorrat grundbestandteil (Menge menge) =
+  Map.alter (\mengeVorrat -> case mengeVorrat of
+                 Nothing -> Just (Menge (- menge))
+                 Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
+    grundbestandteil vorrat
 
 -- mehrere Produkte aus dem Vorrat entnehmen
 entnehmeGrundbestandteile :: Vorrat -> Map Grundbestandteil Menge -> Vorrat
-entnehmeGrundbestandteile st ams =
-  Map.foldrWithKey (\ ssp am st -> entnehmeGrundbestandteil st ssp am) st ams
+entnehmeGrundbestandteile vorrat mengen =
+  Map.foldrWithKey (\ grundbestandteil menge vorrat ->
+                      entnehmeGrundbestandteil vorrat grundbestandteil menge)
+    vorrat mengen
 
 -- not sure this is the right thing wrt. DDD
 type VorratsErmittlung a = State Vorrat a
 
 -- wie viel eines Grundbestandteils ist in unserem Vorrat?
 getGrundbestandteilMenge :: Grundbestandteil -> VorratsErmittlung Menge
-getGrundbestandteilMenge ssp =
+getGrundbestandteilMenge grundbestandteil =
   do stock <- State.get
-     return (grundbestandteilVorrat stock ssp)
+     return (grundbestandteilVorrat stock grundbestandteil)
 
 data Event =
     BestellungEingegangen Bestellung
@@ -138,9 +142,11 @@ entnehmeGrundbestandteileFuerBestellung bestandteile =
 -- examples
 
 verarbeiteBestellung :: ProduktErmittlung m => Bestellung -> m [Event]
-verarbeiteBestellung best =
-  do teile <- ermittleBenoetigteMengen best
-     return ([BestellungEingegangen best] ++ (entnehmeGrundbestandteileFuerBestellung teile) ++ [BestellungVersandt best])
+verarbeiteBestellung bestellung =
+  do teile <- ermittleBenoetigteMengen bestellung
+     return ([BestellungEingegangen bestellung]
+             ++ (entnehmeGrundbestandteileFuerBestellung teile)
+             ++ [BestellungVersandt bestellung])
 
 -- commands: orders
 data Befehl =
@@ -150,10 +156,10 @@ type EventAggregatorT m = WriterT [Event] m
 type EventAggregator m = MonadWriter [Event] m
 
 meldeEvent :: EventAggregator m => Event -> m ()
-meldeEvent ev = Writer.tell [ev]
+meldeEvent event = Writer.tell [event]
 
 meldeEvents :: EventAggregator m => [Event] -> m ()
-meldeEvents evs = Writer.tell evs
+meldeEvents events = Writer.tell events
 
 type EntitaetGeneratorT m = StateT Int m
 type EntitaetGenerator m = MonadState Int m
@@ -165,20 +171,20 @@ neueId =
      return (Id s)
      
 neueEntitaet :: EntitaetGenerator m => a -> m (Entitaet a)
-neueEntitaet st =
+neueEntitaet zustand =
    do id <- neueId
-      return (Entitaet id st)
+      return (Entitaet id zustand)
 
 type BefehlVerarbeitung a = EntitaetGeneratorT (EventAggregatorT (ProduktErmittlungT Identity)) a
 
 verarbeiteBefehl :: (EntitaetGenerator m, EventAggregator m, ProduktErmittlung m) => Befehl -> m ()
-verarbeiteBefehl (SendeBestellung pn m) =
-   do b <- neueEntitaet (pn, m)
-      evs <- verarbeiteBestellung b
-      meldeEvents evs
+verarbeiteBefehl (SendeBestellung produktname menge) =
+   do bestellung <- neueEntitaet (produktname, menge)
+      events <- verarbeiteBestellung bestellung
+      meldeEvents events
 
 laufVerarbeiteBefehl :: Katalog -> BefehlVerarbeitung a -> Id -> (a, Id, [Event])
-laufVerarbeiteBefehl kat bv (Id id) =
-  let ((ret, id), evs) = runReader (runWriterT (runStateT bv id)) kat
-  in (ret, Id id, evs)
+laufVerarbeiteBefehl katalog befehlverarbeitung (Id id) =
+  let ((ret, id), events) = runReader (runWriterT (runStateT befehlverarbeitung id)) katalog
+  in (ret, Id id, events)
 
