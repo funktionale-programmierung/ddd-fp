@@ -149,7 +149,7 @@ verarbeiteBestellung bestellung =
              ++ [BestellungVersandt bestellung])
 
 -- commands: orders
-data Befehl =
+data Command =
     SendeBestellung ProduktName Menge
 
 type EventAggregatorT m = WriterT [Event] m
@@ -175,16 +175,16 @@ neueEntitaet zustand =
    do id <- neueId
       return (Entitaet id zustand)
 
-type BefehlVerarbeitung a = EntitaetGeneratorT (EventAggregatorT (ProduktErmittlungT Identity)) a
+type CommandVerarbeitung a = EntitaetGeneratorT (EventAggregatorT (ProduktErmittlungT Identity)) a
 
-verarbeiteBefehl :: (EntitaetGenerator m, EventAggregator m, ProduktErmittlung m) => Befehl -> m ()
-verarbeiteBefehl (SendeBestellung produktname menge) =
+verarbeiteCommand :: (EntitaetGenerator m, EventAggregator m, ProduktErmittlung m) => Command -> m ()
+verarbeiteCommand (SendeBestellung produktname menge) =
    do bestellung <- neueEntitaet (produktname, menge)
       events <- verarbeiteBestellung bestellung
       meldeEvents events
 
-laufVerarbeiteBefehl :: Katalog -> BefehlVerarbeitung a -> Id -> (a, Id, [Event])
-laufVerarbeiteBefehl katalog befehlverarbeitung (Id id) =
+laufVerarbeiteCommand :: Katalog -> CommandVerarbeitung a -> Id -> (a, Id, [Event])
+laufVerarbeiteCommand katalog befehlverarbeitung (Id id) =
   let ((ret, id), events) = runReader (runWriterT (runStateT befehlverarbeitung id)) katalog
   in (ret, Id id, events)
 
