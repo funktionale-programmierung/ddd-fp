@@ -34,26 +34,26 @@ data ReinigungsProdukt =
 tensidAnteil :: ReinigungsProdukt -> Double
 tensidAnteil (Einfach (Tensid _ _)) = 1.0
 tensidAnteil (Einfach (Pflegestoff _ _)) = 0.0
-tensidAnteil (Gemisch p1 sp1 p2 sp2) =
-  p1 * (tensidAnteil sp1) + p2 * (tensidAnteil sp2)
+tensidAnteil (Gemisch menge1 produkt1 menge2 produkt2) =
+  menge1 * (tensidAnteil produkt1) + menge2 * (tensidAnteil produkt2)
 
 reinigungsProduktBestandteile :: ReinigungsProdukt -> Map Grundbestandteil Double
-reinigungsProduktBestandteile (Einfach s) = Map.singleton s 1.0
-reinigungsProduktBestandteile (Gemisch p1 sp1 p2 sp2) =
-  let d1 = fmap (\ p -> p*p1) (reinigungsProduktBestandteile sp1)
-      d2 = fmap (\ p -> p*p2) (reinigungsProduktBestandteile sp2)
-  in Map.unionWith (+) d1 d2
+reinigungsProduktBestandteile (Einfach bestandteil) = Map.singleton bestandteil 1.0
+reinigungsProduktBestandteile (Gemisch menge1 produkt1 menge2 produkt2) =
+  let bestandteil1 = fmap (\ p -> p * menge1) (reinigungsProduktBestandteile produkt1)
+      bestandteil2 = fmap (\ p -> p * menge2) (reinigungsProduktBestandteile produkt2)
+  in Map.unionWith (+) bestandteil1 bestandteil2
 
 newtype Id = Id Int deriving Eq
 
-data Entitaet state = Entitaet Id state
+data Entitaet daten = Entitaet Id daten
 
 instance Eq (Entitaet a) where
   (Entitaet id1 _) == (Entitaet id2 _) = id1 == id2
   
 newtype Menge = Menge Double deriving (Eq, Show, Ord)
 
-zero = Menge 0
+leer = Menge 0
 
 type Vorrat = Map Grundbestandteil Menge
 
@@ -61,7 +61,7 @@ type Vorrat = Map Grundbestandteil Menge
 grundbestandteilVorrat :: Vorrat -> Grundbestandteil -> Menge
 grundbestandteilVorrat vorrat grundbestandteil =
      case Map.lookup grundbestandteil vorrat of
-       Nothing -> zero
+       Nothing -> leer
        Just menge -> menge
 
 newtype ProduktName = ProduktName String
@@ -102,12 +102,12 @@ sindGrundbestandteileFuerBestellungBevorratet vorrat bestellung katalog =
 -- Invariante für den Vorrat
 istVorratKorrekt :: Vorrat -> Bool
 istVorratKorrekt vorrat =
-  Map.foldr (\ (Menge menge) istKorrekt  -> istKorrekt && (menge >= 0)) True vorrat
+  Map.foldr (\ (Menge menge) istKorrekt -> istKorrekt && (menge >= 0)) True vorrat
 
 -- ein Produkt aus dem Vorrat entnehmen
 entnehmeGrundbestandteil :: Vorrat -> Grundbestandteil -> Menge -> Vorrat
 entnehmeGrundbestandteil vorrat grundbestandteil (Menge menge) =
-  Map.alter (\mengeVorrat -> case mengeVorrat of
+  Map.alter (\ mengeVorrat -> case mengeVorrat of
                  Nothing -> Just (Menge (- menge))
                  Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
     grundbestandteil vorrat
@@ -125,8 +125,8 @@ type VorratsErmittlung a = State Vorrat a
 -- wie viel eines Grundbestandteils ist in unserem Vorrat?
 getGrundbestandteilMenge :: Grundbestandteil -> VorratsErmittlung Menge
 getGrundbestandteilMenge grundbestandteil =
-  do stock <- State.get
-     return (grundbestandteilVorrat stock grundbestandteil)
+  do vorrat <- State.get
+     return (grundbestandteilVorrat vorrat grundbestandteil)
 
 data Event =
     BestellungEingegangen Bestellung
@@ -143,12 +143,11 @@ entnehmeGrundbestandteileFuerBestellung bestandteile =
 
 verarbeiteBestellung :: ProduktErmittlung m => Bestellung -> m [Event]
 verarbeiteBestellung bestellung =
-  do teile <- ermittleBenoetigteMengen bestellung
+  do bestandteile <- ermittleBenoetigteMengen bestellung
      return ([BestellungEingegangen bestellung]
-             ++ (entnehmeGrundbestandteileFuerBestellung teile)
+             ++ (entnehmeGrundbestandteileFuerBestellung bestandteile)
              ++ [BestellungVersandt bestellung])
 
--- commands: orders
 data Command =
     SendeBestellung ProduktName Menge
 
@@ -177,14 +176,14 @@ neueEntitaet zustand =
 
 type CommandVerarbeitung a = EntitaetGeneratorT (EventAggregatorT (ProduktErmittlungT Identity)) a
 
-verarbeiteCommand :: (EntitaetGenerator m, EventAggregator m, ProduktErmittlung m) => Command -> m ()
-verarbeiteCommand (SendeBestellung produktname menge) =
+bereiteCommandVerarbeitungVor :: (EntitaetGenerator m, EventAggregator m, ProduktErmittlung m) => Command -> m ()
+bereiteCommandVerarbeitungVor (SendeBestellung produktname menge) =
    do bestellung <- neueEntitaet (produktname, menge)
       events <- verarbeiteBestellung bestellung
       meldeEvents events
 
-laufVerarbeiteCommand :: Katalog -> CommandVerarbeitung a -> Id -> (a, Id, [Event])
-laufVerarbeiteCommand katalog befehlverarbeitung (Id id) =
-  let ((ret, id), events) = runReader (runWriterT (runStateT befehlverarbeitung id)) katalog
+verarbeiteCommand :: Katalog -> CommandVerarbeitung a -> Id -> (a, Id, [Event])
+verarbeiteCommand katalog commandverarbeitung (Id id) =
+  let ((ret, id), events) = runReader (runWriterT (runStateT commandverarbeitung id)) katalog
   in (ret, Id id, events)
 
