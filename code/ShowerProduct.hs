@@ -73,19 +73,19 @@ type Katalog = Map ProduktName ReinigungsProdukt
 type ProduktErmittlungT m = ReaderT Katalog m
 type ProduktErmittlung m = MonadReader Katalog m
 
--- die benötigten Mengen für eine Bestellung
-benoetigteMengen :: Bestellung -> Katalog -> Map Grundbestandteil Menge
-benoetigteMengen (Entitaet _ (produktname, Menge menge)) katalog =
-  case Map.lookup produktname katalog of
-    Nothing -> Map.empty
-    Just reinigungsprodukt ->
-      fmap (\ anteil -> Menge (menge * anteil)) (reinigungsProduktBestandteile reinigungsprodukt)
-
--- die benötigten Mengen für eine Bestellung (ohne Kenntnis des Katalogs)
-ermittleBenoetigteMengen :: ProduktErmittlung m => Bestellung -> m (Map Grundbestandteil Menge)
-ermittleBenoetigteMengen bestellung =
+findeProdukt :: ProduktErmittlung m => ProduktName -> m (Maybe ReinigungsProdukt)
+findeProdukt produktname =
   do katalog <- Reader.ask
-     return (benoetigteMengen bestellung katalog)
+     return (Map.lookup produktname katalog)
+
+-- die benötigten Mengen für eine Bestellung
+benoetigteMengen :: ProduktErmittlung m => Bestellung -> m (Map Grundbestandteil Menge)
+benoetigteMengen (Entitaet _ (produktname, Menge menge)) =
+  do katalog <- Reader.ask
+     case Map.lookup produktname katalog of
+       Nothing -> return Map.empty
+       Just reinigungsprodukt ->
+         return (fmap (\ anteil -> Menge (menge * anteil)) (reinigungsProduktBestandteile reinigungsprodukt))
 
 -- sind die angegebenen Mengen bevorratet?
 sindGrundbestandteileBevorratet :: Vorrat -> Map Grundbestandteil Menge -> Bool
@@ -129,28 +129,39 @@ getGrundbestandteilMenge grundbestandteil =
      return (grundbestandteilVorrat stock grundbestandteil)
 
 data Event =
-    BestellungEingegangen Bestellung
-  | GrundbestandteilEntnommen Grundbestandteil Menge
+    BestellungAkzeptiert Bestellung
+  | ProduktNichtGefunden Bestellung
+  | BestellungStorniert Bestellung
+  | BestellungBestaetigt Bestellung
+  | GrundbestandteilEntnommen Bestellung Grundbestandteil Menge
+  | ProduktGemischt Bestellung
   | BestellungVersandt Bestellung
 
-
-entnehmeGrundbestandteileFuerBestellung :: Map Grundbestandteil Menge -> [Event]
-entnehmeGrundbestandteileFuerBestellung bestandteile =
-    fmap (uncurry GrundbestandteilEntnommen) (toList bestandteile)
+entnehmeGrundbestandteileFuerBestellung :: Bestellung -> Map Grundbestandteil Menge -> [Event]
+entnehmeGrundbestandteileFuerBestellung bestellung bestandteile =
+    fmap (uncurry (GrundbestandteilEntnommen bestellung)) (toList bestandteile)
 
 -- REPL usability
 -- examples
 
+{-
 verarbeiteBestellung :: ProduktErmittlung m => Bestellung -> m [Event]
 verarbeiteBestellung bestellung =
   do teile <- ermittleBenoetigteMengen bestellung
      return ([BestellungEingegangen bestellung]
              ++ (entnehmeGrundbestandteileFuerBestellung teile)
              ++ [BestellungVersandt bestellung])
+-}
 
 -- commands: orders
 data Command =
-    SendeBestellung ProduktName Menge
+   AkzeptiereBestellung ProduktName Menge
+ | BestaetigeBestellung Bestellung
+ | StorniereBestellung Bestellung
+ | BearbeiteBestellung Bestellung
+ | MeldeProduktNichtGefunden ProduktName
+ | MischeProdkt Bestellung
+ | SendeBestellung Bestellung
 
 type EventAggregatorT m = WriterT [Event] m
 type EventAggregator m = MonadWriter [Event] m
@@ -160,6 +171,15 @@ meldeEvent event = Writer.tell [event]
 
 meldeEvents :: EventAggregator m => [Event] -> m ()
 meldeEvents events = Writer.tell events
+
+type CommandAggregatorT m = WriterT [Command] m
+type CommandAggregator m = MonadWriter [Command] m
+
+registriereCommands :: CommandAggregator m => [Command] -> m ()
+registriereCommands commands = Writer.tell commands
+
+registriereCommand :: CommandAggregator m => Command -> m ()
+registriereCommand command = registriereCommands [command]
 
 type EntitaetGeneratorT m = StateT Int m
 type EntitaetGenerator m = MonadState Int m
@@ -175,6 +195,21 @@ neueEntitaet zustand =
    do id <- neueId
       return (Entitaet id zustand)
 
+verarbeiteCommand :: (ProduktErmittlung m, EntitaetGenerator m, EventAggregator m) => Command -> m ()
+verarbeiteCommand (AkzeptiereBestellung produktname menge) =
+  do bestellung <- neueEntitaet (produktname, menge)
+     meldeEvent (BestellungAkzeptiert bestellung)
+verarbeiteCommand (BestaetigeBestellung (bestellung@(Entitaet _ (produktname, menge)))) =
+  do maybeProdukt <- findeProdukt produktname
+     case maybeProdukt of
+       Nothing -> meldeEvent (ProduktNichtGefunden bestellung)
+       Just produkt -> meldeEvent (BestellungBestaetigt bestellung)
+verarbeiteCommand (StorniereBestellung bestellung) =
+  meldeEvent (BestellungStorniert bestellung)
+
+  
+             
+{-
 type CommandVerarbeitung a = EntitaetGeneratorT (EventAggregatorT (ProduktErmittlungT Identity)) a
 
 verarbeiteCommand :: (EntitaetGenerator m, EventAggregator m, ProduktErmittlung m) => Command -> m ()
@@ -187,4 +222,4 @@ laufVerarbeiteCommand :: Katalog -> CommandVerarbeitung a -> Id -> (a, Id, [Even
 laufVerarbeiteCommand katalog befehlverarbeitung (Id id) =
   let ((ret, id), events) = runReader (runWriterT (runStateT befehlverarbeitung id)) katalog
   in (ret, Id id, events)
-
+-}
