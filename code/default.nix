@@ -1,3 +1,5 @@
+# nix-shell --command "ghci -ferror-spans"
+
 { nixpkgs ? import <nixpkgs> {} }:
 let
   inherit (nixpkgs) pkgs;
