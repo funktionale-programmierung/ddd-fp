@@ -55,11 +55,11 @@ newtype Menge = Menge Double deriving (Eq, Show, Ord)
 
 leer = Menge 0
 
-type Vorrat = Map Grundbestandteil Menge
+newtype Vorrat = Vorrat (Map Grundbestandteil Menge)
 
 
 grundbestandteilVorrat :: Vorrat -> Grundbestandteil -> Menge
-grundbestandteilVorrat vorrat grundbestandteil =
+grundbestandteilVorrat (Vorrat vorrat) grundbestandteil =
      case Map.lookup grundbestandteil vorrat of
        Nothing -> leer
        Just menge -> menge
@@ -101,16 +101,17 @@ sindGrundbestandteileFuerBestellungBevorratet vorrat bestellung katalog =
 
 -- Invariante für den Vorrat
 istVorratKorrekt :: Vorrat -> Bool
-istVorratKorrekt vorrat =
+istVorratKorrekt (Vorrat vorrat) =
   Map.foldr (\ (Menge menge) istKorrekt -> istKorrekt && (menge >= 0)) True vorrat
 
 -- ein Produkt aus dem Vorrat entnehmen
 entnehmeGrundbestandteil :: Vorrat -> Grundbestandteil -> Menge -> Vorrat
-entnehmeGrundbestandteil vorrat grundbestandteil (Menge menge) =
-  Map.alter (\ mengeVorrat -> case mengeVorrat of
-                 Nothing -> Just (Menge (- menge))
-                 Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
-    grundbestandteil vorrat
+entnehmeGrundbestandteil (Vorrat vorrat) grundbestandteil (Menge menge) =
+  Vorrat
+    (Map.alter (\ mengeVorrat -> case mengeVorrat of
+                    Nothing -> Just (Menge (- menge))
+                    Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
+       grundbestandteil vorrat)
 
 -- mehrere Produkte aus dem Vorrat entnehmen
 entnehmeGrundbestandteile :: Vorrat -> Map Grundbestandteil Menge -> Vorrat
