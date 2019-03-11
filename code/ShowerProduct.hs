@@ -160,6 +160,29 @@ entnehmeGrundbestandteile vorrat mengen =
 entnehmeVorrat :: Vorrat -> Vorrat -> Vorrat
 entnehmeVorrat vorrat1 vorrat2 = vorrat1 <> (invert vorrat2)
 
+-- REPL usability
+-- examples
+
+data Command =
+   AkzeptiereBestellung ProduktName Menge
+ | BestaetigeBestellung Bestellung
+ | StorniereBestellung Bestellung
+ | BearbeiteBestellung Bestellung
+ | MeldeProduktNichtGefunden ProduktName
+ | MischeProdkt Bestellung
+ | SendeBestellung Bestellung
+
+neueId :: EntitaetGenerator m => m Id
+neueId =
+  do s <- State.get
+     State.put (s + 1)
+     return (Id s)
+     
+neueEntitaet :: EntitaetGenerator m => a -> m (Entitaet a)
+neueEntitaet zustand =
+   do id <- neueId
+      return (Entitaet id zustand)
+
 data Event =
     BestellungAkzeptiert Bestellung
   | ProduktNichtGefunden Bestellung
@@ -178,61 +201,6 @@ entnehmeVorratFuerBestellung :: Bestellung -> Vorrat -> [Event]
 entnehmeVorratFuerBestellung bestellung (Vorrat vorrat) =
     fmap (uncurry (GrundbestandteilEntnommen bestellung)) (toList vorrat)
 
--- REPL usability
--- examples
-
-data Command =
-   AkzeptiereBestellung ProduktName Menge
- | BestaetigeBestellung Bestellung
- | StorniereBestellung Bestellung
- | BearbeiteBestellung Bestellung
- | MeldeProduktNichtGefunden ProduktName
- | MischeProdkt Bestellung
- | SendeBestellung Bestellung
-
-type EventAggregatorT m = WriterT [Event] m
-type EventAggregator m = MonadWriter [Event] m
-
-meldeEvent :: EventAggregator m => Event -> m ()
-meldeEvent event = Writer.tell [event]
-
-meldeEvents :: EventAggregator m => [Event] -> m ()
-meldeEvents events = Writer.tell events
-
-type CommandAggregatorT m = WriterT [Command] m
-type CommandAggregator m = MonadWriter [Command] m
-
-registriereCommands :: CommandAggregator m => [Command] -> m ()
-registriereCommands commands = Writer.tell commands
-
-registriereCommand :: CommandAggregator m => Command -> m ()
-registriereCommand command = registriereCommands [command]
-
-type EntitaetGeneratorT m = StateT Int m
-type EntitaetGenerator m = MonadState Int m
-
-neueId :: EntitaetGenerator m => m Id
-neueId =
-  do s <- State.get
-     State.put (s + 1)
-     return (Id s)
-     
-neueEntitaet :: EntitaetGenerator m => a -> m (Entitaet a)
-neueEntitaet zustand =
-   do id <- neueId
-      return (Entitaet id zustand)
-
-verarbeiteCommand0 :: (ProduktErmittlung m, EntitaetGenerator m, EventAggregator m) => Command -> m ()
-verarbeiteCommand0 (AkzeptiereBestellung produktname menge) =
-  do bestellung <- neueEntitaet (produktname, menge)
-     meldeEvent (BestellungAkzeptiert bestellung)
-verarbeiteCommand0 (BestaetigeBestellung (bestellung@(Entitaet _ (produktname, menge)))) =
-  do maybeProdukt <- findeProdukt produktname
-     case maybeProdukt of
-       Nothing -> meldeEvent (ProduktNichtGefunden bestellung)
-       Just produkt -> meldeEvent (BestellungBestaetigt bestellung)
-verarbeiteCommand0 (StorniereBestellung bestellung) =
-  meldeEvent (BestellungStorniert bestellung)
 
 type VorratAggregatorT m = WriterT Vorrat m
 type VorratAggregator m = MonadWriter Vorrat m
