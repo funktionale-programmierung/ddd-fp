@@ -26,18 +26,18 @@ data Grundbestandteil =
   | Pflegestoff Farbe Haartyp
   deriving (Eq, Show, Ord)
   
-data ReinigungsProdukt =
+data WaschProdukt =
     Einfach Grundbestandteil
-  | Gemisch Double ReinigungsProdukt Double ReinigungsProdukt
+  | Gemisch Double WaschProdukt Double WaschProdukt
   deriving (Eq, Show, Ord)
 
-tensidAnteil :: ReinigungsProdukt -> Double
+tensidAnteil :: WaschProdukt -> Double
 tensidAnteil (Einfach (Tensid _ _)) = 1.0
 tensidAnteil (Einfach (Pflegestoff _ _)) = 0.0
 tensidAnteil (Gemisch menge1 produkt1 menge2 produkt2) =
   menge1 * (tensidAnteil produkt1) + menge2 * (tensidAnteil produkt2)
 
-reinigungsProduktBestandteile :: ReinigungsProdukt -> Map Grundbestandteil Double
+reinigungsProduktBestandteile :: WaschProdukt -> Map Grundbestandteil Double
 reinigungsProduktBestandteile (Einfach bestandteil) = Map.singleton bestandteil 1.0
 reinigungsProduktBestandteile (Gemisch menge1 produkt1 menge2 produkt2) =
   let bestandteil1 = fmap (\ p -> p * menge1) (reinigungsProduktBestandteile produkt1)
@@ -68,12 +68,12 @@ newtype ProduktName = ProduktName String
   deriving (Eq, Show, Ord)
 type Bestellung = Entitaet (ProduktName, Menge)
 
-type Katalog = Map ProduktName ReinigungsProdukt
+type Katalog = Map ProduktName WaschProdukt
 
 type ProduktErmittlungT m = ReaderT Katalog m
 type ProduktErmittlung m = MonadReader Katalog m
 
-findeProdukt :: ProduktErmittlung m => ProduktName -> m (Maybe ReinigungsProdukt)
+findeProdukt :: ProduktErmittlung m => ProduktName -> m (Maybe WaschProdukt)
 findeProdukt produktname =
   do katalog <- Reader.ask
      return (Map.lookup produktname katalog)
