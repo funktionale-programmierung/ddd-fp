@@ -10,9 +10,6 @@ import Control.Monad.Identity
 import qualified Control.Monad.Reader (ReaderT)
 import Control.Monad.Reader as Reader
   
-import qualified Control.Monad.Writer (WriterT)
-import Control.Monad.Writer as Writer
-
 import Control.Monad.State.Lazy as State
 import qualified Control.Monad.State.Lazy (State)
 
@@ -53,6 +50,12 @@ reinigungsProduktBestandteile (Gemisch menge1 produkt1 menge2 produkt2) =
 
 newtype Id = Id Int deriving Eq
 
+ersteId :: Id
+ersteId = Id 0
+
+naechsteId :: Id -> Id
+naechsteId (Id id) = Id (id + 1)
+                        
 data Entitaet daten = Entitaet Id daten
 
 instance Eq (Entitaet a) where
@@ -157,8 +160,8 @@ entnehmeGrundbestandteile vorrat mengen =
     vorrat mengen
 
 -- dito, refaktorisiert
-entnehmeVorrat :: Vorrat -> Vorrat -> Vorrat
-entnehmeVorrat vorrat1 vorrat2 = vorrat1 <> (invert vorrat2)
+vorratMinus :: Vorrat -> Vorrat -> Vorrat
+vorratMinus vorrat1 vorrat2 = vorrat1 <> (invert vorrat2)
 
 -- REPL usability
 -- examples
@@ -172,18 +175,37 @@ data Command =
  | MischeProdkt Bestellung
  | SendeBestellung Bestellung
 
-type EntitaetGeneratorT m = StateT Int m
-type EntitaetGenerator m = MonadState Int m
+class HatId record where
+  neueId :: record -> (Id, record)
 
-neueId :: EntitaetGenerator m => m Id
-neueId =
-  do s <- State.get
-     State.put (s + 1)
-     return (Id s)
+class HatVorrat record where
+  vorratWeniger :: record -> Vorrat -> (Vorrat, record)
+
+type BestellungsBearbeitung state m = (MonadState state m, HatId state, HatVorrat state)
+
+data BearbeitungsZustand = BearbeitungsZustand { zustandId :: Id, zustandVorrat :: Vorrat }
+
+instance HatId BearbeitungsZustand where
+  neueId (zustand@(BearbeitungsZustand { zustandId = id })) =
+    (id, zustand { zustandId = naechsteId id })
+
+instance HatVorrat BearbeitungsZustand where
+  vorratWeniger (zustand@(BearbeitungsZustand { zustandVorrat = zustandVorrat })) vorrat  =
+    let zustandVorrat' = vorratMinus zustandVorrat vorrat
+    in (zustandVorrat', zustand { zustandVorrat = zustandVorrat' })
+
+type BestellungsBearbeitungT m = StateT BearbeitungsZustand m
+
+generiereId :: BestellungsBearbeitung state m => m Id
+generiereId =
+  do state <- State.get
+     let (id, state') = neueId state
+     State.put state'
+     return id
      
-neueEntitaet :: EntitaetGenerator m => a -> m (Entitaet a)
+neueEntitaet :: BestellungsBearbeitung state m => a -> m (Entitaet a)
 neueEntitaet zustand =
-   do id <- neueId
+   do id <- generiereId
       return (Entitaet id zustand)
 
 data Event =
@@ -200,19 +222,23 @@ entnehmeGrundbestandteileFuerBestellung :: Bestellung -> Map Grundbestandteil Me
 entnehmeGrundbestandteileFuerBestellung bestellung bestandteile =
     fmap (uncurry (GrundbestandteilEntnommen bestellung)) (toList bestandteile)
 
-entnehmeVorratFuerBestellung :: Bestellung -> Vorrat -> [Event]
-entnehmeVorratFuerBestellung bestellung (Vorrat vorrat) =
+bestellungsVorratsEntnahme :: Bestellung -> Vorrat -> [Event]
+bestellungsVorratsEntnahme bestellung (Vorrat vorrat) =
     fmap (uncurry (GrundbestandteilEntnommen bestellung)) (toList vorrat)
 
-type VorratAggregatorT m = WriterT Vorrat m
-type VorratAggregator m = MonadWriter Vorrat m
+aktuellerVorrat :: BestellungsBearbeitung state m => m Vorrat
+aktuellerVorrat =
+  do state <- State.get
+     let (vorrat, _) = vorratWeniger state leererVorrat
+     return vorrat
 
-aktuellerVorrat :: VorratAggregator m => m Vorrat
-aktuellerVorrat = fmap snd (listen (return ()))
---  do ((), vorrat) <- listen (return ())
---     return vorrat
-
-verarbeiteCommand :: (ProduktErmittlung m, EntitaetGenerator m, VorratAggregator m) => Command -> m [Event]
+entnimmVorrat :: BestellungsBearbeitung state m => Vorrat -> m ()
+entnimmVorrat vorrat =
+  do state <- State.get
+     let (vorrat', state') = vorratWeniger state vorrat
+     State.put state'
+           
+verarbeiteCommand :: (ProduktErmittlung m, BestellungsBearbeitung state m) => Command -> m [Event]
 verarbeiteCommand (AkzeptiereBestellung produktname menge) =
   do bestellung <- neueEntitaet (produktname, menge)
      return [BestellungAkzeptiert bestellung]
@@ -224,7 +250,18 @@ verarbeiteCommand (BestaetigeBestellung (bestellung@(Entitaet _ (produktname, me
 verarbeiteCommand (BearbeiteBestellung bestellung)  =
   do bestellungVorrat <- benoetigterVorrat bestellung
      aktuellerVorrat <- aktuellerVorrat
-     if (istVorratKorrekt (entnehmeVorrat aktuellerVorrat bestellungVorrat)) then
-       return (entnehmeVorratFuerBestellung bestellung aktuellerVorrat)
+     if (istVorratKorrekt (vorratMinus aktuellerVorrat bestellungVorrat)) then
+       do entnimmVorrat bestellungVorrat
+          return (bestellungsVorratsEntnahme bestellung aktuellerVorrat)
      else
        return [NichtGenugVorrat bestellung]
+
+type Bearbeitung a = (BestellungsBearbeitungT (ProduktErmittlungT Identity)) a
+
+bearbeite :: Katalog -> BearbeitungsZustand -> Bearbeitung a -> (a, BearbeitungsZustand)
+bearbeite katalog bearbeitungszustand verarbeitung =
+  runReader (runStateT verarbeitung bearbeitungszustand) katalog
+
+bearbeiteAlles :: Katalog -> Bearbeitung a -> a
+bearbeiteAlles katalog bearbeitung =
+  fst (bearbeite katalog (BearbeitungsZustand ersteId leererVorrat) bearbeitung)
