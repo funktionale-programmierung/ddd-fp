@@ -172,6 +172,27 @@ data Command =
  | MischeProdkt Bestellung
  | SendeBestellung Bestellung
 
+type EventAggregatorT m = WriterT [Event] m
+type EventAggregator m = MonadWriter [Event] m
+
+meldeEvent :: EventAggregator m => Event -> m ()
+meldeEvent event = Writer.tell [event]
+
+meldeEvents :: EventAggregator m => [Event] -> m ()
+meldeEvents events = Writer.tell events
+
+type CommandAggregatorT m = WriterT [Command] m
+type CommandAggregator m = MonadWriter [Command] m
+
+registriereCommands :: CommandAggregator m => [Command] -> m ()
+registriereCommands commands = Writer.tell commands
+
+registriereCommand :: CommandAggregator m => Command -> m ()
+registriereCommand command = registriereCommands [command]
+
+type EntitaetGeneratorT m = StateT Int m
+type EntitaetGenerator m = MonadState Int m
+
 neueId :: EntitaetGenerator m => m Id
 neueId =
   do s <- State.get
@@ -200,7 +221,6 @@ entnehmeGrundbestandteileFuerBestellung bestellung bestandteile =
 entnehmeVorratFuerBestellung :: Bestellung -> Vorrat -> [Event]
 entnehmeVorratFuerBestellung bestellung (Vorrat vorrat) =
     fmap (uncurry (GrundbestandteilEntnommen bestellung)) (toList vorrat)
-
 
 type VorratAggregatorT m = WriterT Vorrat m
 type VorratAggregator m = MonadWriter Vorrat m
