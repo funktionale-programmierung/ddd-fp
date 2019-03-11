@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 import Data.Map as Map
 import qualified Data.Map.Strict (Map)
@@ -14,6 +15,12 @@ import Control.Monad.Writer as Writer
 
 import Control.Monad.State.Lazy as State
 import qualified Control.Monad.State.Lazy (State)
+
+import qualified Data.Monoid (Monoid)
+import Data.Monoid as Monoid
+
+import qualified Data.Group (Group)
+import Data.Group as Group
 
 newtype Farbe = Farbe String deriving (Eq, Show, Ord)
 newtype PH = PH Double deriving (Eq, Show, Ord)
@@ -55,9 +62,29 @@ newtype Menge = Menge Double deriving (Eq, Show, Ord)
 
 leer = Menge 0
 
+instance Semigroup Menge where
+  (Menge menge1) <> (Menge menge2) = Menge (menge1 + menge2)
+
+instance Monoid Menge where
+  mempty = leer
+
+instance Group Menge where
+  invert (Menge menge) = Menge (-menge)
+
 newtype Vorrat = Vorrat (Map Grundbestandteil Menge)
+  deriving (Eq, Show)
 
+leererVorrat = Vorrat Map.empty
 
+instance Semigroup Vorrat where
+  (Vorrat vorrat1) <> (Vorrat vorrat2) = Vorrat (vorrat1 <> vorrat2)
+
+instance Monoid Vorrat where
+  mempty = leererVorrat
+
+instance Group Vorrat where
+  invert (Vorrat vorrat) = Vorrat (fmap invert vorrat)
+  
 grundbestandteilVorrat :: Vorrat -> Grundbestandteil -> Menge
 grundbestandteilVorrat (Vorrat vorrat) grundbestandteil =
      case Map.lookup grundbestandteil vorrat of
@@ -86,6 +113,15 @@ benoetigteMengen (Entitaet _ (produktname, Menge menge)) =
        Nothing -> return Map.empty
        Just reinigungsprodukt ->
          return (fmap (\ anteil -> Menge (menge * anteil)) (reinigungsProduktBestandteile reinigungsprodukt))
+
+-- der benötigte Vorrat für eine Bestellung
+benoetigterVorrat :: ProduktErmittlung m => Bestellung -> m Vorrat
+benoetigterVorrat (Entitaet _ (produktname, Menge menge)) =
+  do katalog <- Reader.ask
+     case Map.lookup produktname katalog of
+       Nothing -> return leererVorrat
+       Just reinigungsprodukt ->
+         return (Vorrat (fmap (\ anteil -> Menge (menge * anteil)) (reinigungsProduktBestandteile reinigungsprodukt)))
 
 -- sind die angegebenen Mengen bevorratet?
 sindGrundbestandteileBevorratet :: Vorrat -> Map Grundbestandteil Menge -> Bool
@@ -120,14 +156,9 @@ entnehmeGrundbestandteile vorrat mengen =
                       entnehmeGrundbestandteil vorrat grundbestandteil menge)
     vorrat mengen
 
--- not sure this is the right thing wrt. DDD
-type VorratsErmittlung a = State Vorrat a
-
--- wie viel eines Grundbestandteils ist in unserem Vorrat?
-getGrundbestandteilMenge :: Grundbestandteil -> VorratsErmittlung Menge
-getGrundbestandteilMenge grundbestandteil =
-  do vorrat <- State.get
-     return (grundbestandteilVorrat vorrat grundbestandteil)
+-- dito, refaktorisiert
+entnehmeVorrat :: Vorrat -> Vorrat -> Vorrat
+entnehmeVorrat vorrat1 vorrat2 = vorrat1 <> (invert vorrat2)
 
 data Event =
     BestellungAkzeptiert Bestellung
@@ -135,6 +166,7 @@ data Event =
   | BestellungStorniert Bestellung
   | BestellungBestaetigt Bestellung
   | GrundbestandteilEntnommen Bestellung Grundbestandteil Menge
+  | NichtGenugVorrat Bestellung
   | ProduktGemischt Bestellung
   | BestellungVersandt Bestellung
 
@@ -142,17 +174,12 @@ entnehmeGrundbestandteileFuerBestellung :: Bestellung -> Map Grundbestandteil Me
 entnehmeGrundbestandteileFuerBestellung bestellung bestandteile =
     fmap (uncurry (GrundbestandteilEntnommen bestellung)) (toList bestandteile)
 
+entnehmeVorratFuerBestellung :: Bestellung -> Vorrat -> [Event]
+entnehmeVorratFuerBestellung bestellung (Vorrat vorrat) =
+    fmap (uncurry (GrundbestandteilEntnommen bestellung)) (toList vorrat)
+
 -- REPL usability
 -- examples
-
-{-
-verarbeiteBestellung :: ProduktErmittlung m => Bestellung -> m [Event]
-verarbeiteBestellung bestellung =
-  do bestandteile <- ermittleBenoetigteMengen bestellung
-     return ([BestellungEingegangen bestellung]
-             ++ (entnehmeGrundbestandteileFuerBestellung bestandteile)
-             ++ [BestellungVersandt bestellung])
--}
 
 data Command =
    AkzeptiereBestellung ProduktName Menge
@@ -195,31 +222,39 @@ neueEntitaet zustand =
    do id <- neueId
       return (Entitaet id zustand)
 
-verarbeiteCommand :: (ProduktErmittlung m, EntitaetGenerator m, EventAggregator m) => Command -> m ()
-verarbeiteCommand (AkzeptiereBestellung produktname menge) =
+verarbeiteCommand0 :: (ProduktErmittlung m, EntitaetGenerator m, EventAggregator m) => Command -> m ()
+verarbeiteCommand0 (AkzeptiereBestellung produktname menge) =
   do bestellung <- neueEntitaet (produktname, menge)
      meldeEvent (BestellungAkzeptiert bestellung)
-verarbeiteCommand (BestaetigeBestellung (bestellung@(Entitaet _ (produktname, menge)))) =
+verarbeiteCommand0 (BestaetigeBestellung (bestellung@(Entitaet _ (produktname, menge)))) =
   do maybeProdukt <- findeProdukt produktname
      case maybeProdukt of
        Nothing -> meldeEvent (ProduktNichtGefunden bestellung)
        Just produkt -> meldeEvent (BestellungBestaetigt bestellung)
-verarbeiteCommand (StorniereBestellung bestellung) =
+verarbeiteCommand0 (StorniereBestellung bestellung) =
   meldeEvent (BestellungStorniert bestellung)
 
-  
-             
-{-
-type CommandVerarbeitung a = EntitaetGeneratorT (EventAggregatorT (ProduktErmittlungT Identity)) a
+type VorratAggregatorT m = WriterT Vorrat m
+type VorratAggregator m = MonadWriter Vorrat m
 
-bereiteCommandVerarbeitungVor :: (EntitaetGenerator m, EventAggregator m, ProduktErmittlung m) => Command -> m ()
-bereiteCommandVerarbeitungVor (SendeBestellung produktname menge) =
-   do bestellung <- neueEntitaet (produktname, menge)
-      events <- verarbeiteBestellung bestellung
-      meldeEvents events
+aktuellerVorrat :: VorratAggregator m => m Vorrat
+aktuellerVorrat = fmap snd (listen (return ()))
+--  do ((), vorrat) <- listen (return ())
+--     return vorrat
 
-verarbeiteCommand :: Katalog -> CommandVerarbeitung a -> Id -> (a, Id, [Event])
-verarbeiteCommand katalog commandverarbeitung (Id id) =
-  let ((ret, id), events) = runReader (runWriterT (runStateT commandverarbeitung id)) katalog
-  in (ret, Id id, events)
--}
+verarbeiteCommand :: (ProduktErmittlung m, EntitaetGenerator m, VorratAggregator m) => Command -> m [Event]
+verarbeiteCommand (AkzeptiereBestellung produktname menge) =
+  do bestellung <- neueEntitaet (produktname, menge)
+     return [BestellungAkzeptiert bestellung]
+verarbeiteCommand (BestaetigeBestellung (bestellung@(Entitaet _ (produktname, menge)))) =
+  do maybeProdukt <- findeProdukt produktname
+     case maybeProdukt of
+       Nothing -> return [ProduktNichtGefunden bestellung]
+       Just produkt -> return [BestellungBestaetigt bestellung]
+verarbeiteCommand (BearbeiteBestellung bestellung)  =
+  do bestellungVorrat <- benoetigterVorrat bestellung
+     aktuellerVorrat <- aktuellerVorrat
+     if (istVorratKorrekt (entnehmeVorrat aktuellerVorrat bestellungVorrat)) then
+       return (entnehmeVorratFuerBestellung bestellung aktuellerVorrat)
+     else
+       return [NichtGenugVorrat bestellung]
