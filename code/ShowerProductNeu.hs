@@ -41,6 +41,11 @@ data BestellDaten = BestellDaten ProduktName Menge
 data Entitaet daten = Entitaet Id daten
   deriving (Show)
 
+{-
+class Eq a where
+   (==) :: a -> a -> Bool
+-}
+
 instance Eq (Entitaet a) where
   (Entitaet id1 _) == (Entitaet id2 _) = id1 == id2
 
