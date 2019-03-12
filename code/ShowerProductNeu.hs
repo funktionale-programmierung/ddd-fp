@@ -12,9 +12,6 @@ import qualified Control.Monad.State.Lazy (State)
 import qualified Data.Monoid (Monoid)
 import Data.Monoid as Monoid
 
---import qualified Data.Group (Group)
---import Data.Group as Group
-
 class Monoid g => Group g where
   invert :: g -> g
 
