@@ -11,12 +11,12 @@ import Data.Monoid as Monoid
 
 -- Domänenmodellierung / Value Objects
 
+data Haartyp = Fettig | Trocken | Normal | Schuppen
+  deriving (Eq, Show, Ord)
+
 data Grundbestandteil =
     Tensid PH
   | Pflegestoff Haartyp
-  deriving (Eq, Show, Ord)
-
-data Haartyp = Fettig | Trocken | Normal | Schuppen
   deriving (Eq, Show, Ord)
 
 data PH = PH Double deriving (Eq, Show, Ord)
@@ -85,10 +85,6 @@ derVorrat = Vorrat (Map.fromList [
     (tensid, Menge 10), (schuppenmittel, Menge 1)
   ])
 
-vorratAus :: Grundbestandteil -> Menge -> Vorrat
-vorratAus grundbestandteil menge =
-  Vorrat (Map.fromList [(grundbestandteil, menge)])
-
 -- Events
 
 data Event =
@@ -140,15 +136,6 @@ reinigungsProduktBestandteile (Mixtur menge1 produkt1 produkt2) =
       bestandteil2 = fmap (\ p -> p * menge2) (reinigungsProduktBestandteile produkt2)
   in Map.unionWith (+) bestandteil1 bestandteil2
 
--- ein Produkt aus dem Vorrat entnehmen
-entnehmeGrundbestandteil :: Vorrat -> Grundbestandteil -> Menge -> Vorrat
-entnehmeGrundbestandteil (Vorrat vorrat) grundbestandteil (Menge menge) =
-  Vorrat
-    (Map.alter (\ mengeVorrat -> case mengeVorrat of
-                    Nothing -> Just (Menge (- menge))
-                    Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
-       grundbestandteil vorrat)
-
 vorratIstAusreichendFuer :: Vorrat -> Vorrat -> Bool
 vorratIstAusreichendFuer benoetigt gesamt =
   istVorratKorrekt (entnehmeVorrat gesamt benoetigt)
@@ -163,6 +150,15 @@ entnehmeVorrat' gesamt (Vorrat benoetigt) =
   Map.foldrWithKey (\ grundbestandteil menge vorrat ->
                       entnehmeGrundbestandteil vorrat grundbestandteil menge)
     gesamt benoetigt
+
+-- ein Produkt aus dem Vorrat entnehmen
+entnehmeGrundbestandteil :: Vorrat -> Grundbestandteil -> Menge -> Vorrat
+entnehmeGrundbestandteil (Vorrat vorrat) grundbestandteil (Menge menge) =
+  Vorrat
+    (Map.alter (\ mengeVorrat -> case mengeVorrat of
+                    Nothing -> Just (Menge (- menge))
+                    Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
+       grundbestandteil vorrat)
 
 -- alternative Version entnehmeVorrat mit Gruppen
 
@@ -191,15 +187,7 @@ instance Semigroup Vorrat where
 instance Monoid Vorrat where
   mempty = leererVorrat
 
-bestelldatenUnbekannt = BestellDaten (ProduktName "Erdbeermilch") (Menge 1)
-bestelldatenShampoo = BestellDaten (ProduktName "Schuppenshampoo") (Menge 1)
-
 -- Fold über Events
-
-eventEffektAufVorrat :: Vorrat -> Event -> Vorrat
-eventEffektAufVorrat vorrat (GrundbestandteilEntnommen bestellung grundbestandteil menge) =
-  entnehmeVorrat vorrat (vorratAus grundbestandteil menge)
-eventEffektAufVorrat vorrat _ = vorrat
 
 eventsEffektAufVorrat :: Vorrat -> [Event] -> Vorrat
 eventsEffektAufVorrat vorrat events =
@@ -207,12 +195,24 @@ eventsEffektAufVorrat vorrat events =
            eventEffektAufVorrat vorrat event)
     vorrat events
 
+eventEffektAufVorrat :: Vorrat -> Event -> Vorrat
+eventEffektAufVorrat vorrat (GrundbestandteilEntnommen bestellung grundbestandteil menge) =
+  entnehmeVorrat vorrat (vorratAus grundbestandteil menge)
+eventEffektAufVorrat vorrat _ = vorrat
+
+vorratAus :: Grundbestandteil -> Menge -> Vorrat
+vorratAus grundbestandteil menge =
+  Vorrat (Map.fromList [(grundbestandteil, menge)])
+
 -- Version mit Repository / Monade
 
 bestelle' :: InterfaceIdGenerator m => BestellDaten -> Vorrat -> Katalog -> m [Event]
 bestelle' bestelldaten aktuellerVorrat katalog =
   do bestellung <- baueEntitaet bestelldaten
      return ([BestellungAkzeptiert bestellung] ++ (verarbeiteBestellung bestellung aktuellerVorrat katalog))
+
+bestelldatenUnbekannt = BestellDaten (ProduktName "Erdbeermilch") (Menge 1)
+bestelldatenShampoo = BestellDaten (ProduktName "Schuppenshampoo") (Menge 1)
 
 class Monad m => InterfaceIdGenerator m where
   newId :: m Id
