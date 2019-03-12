@@ -1,3 +1,5 @@
+-- * Vorgeplänkel
+
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
@@ -9,11 +11,12 @@ import qualified Data.Map.Strict (Map)
 import qualified Data.Monoid (Monoid)
 import Data.Monoid as Monoid
 
--- Domänenmodellierung / Value Objects
-
+-- * Domänenmodellierung / Value Objects
+-- ** Haartyp
 data Haartyp = Fettig | Trocken | Normal | Schuppen
   deriving (Eq, Show, Ord)
 
+-- ** Grundbestandteil
 data Grundbestandteil =
     Tensid PH
   | Pflegestoff Haartyp
@@ -21,22 +24,25 @@ data Grundbestandteil =
 
 data PH = PH Double deriving (Eq, Show, Ord)
 
+-- ** Waschprodukt
 data WaschProdukt =
     Einfach Grundbestandteil
   | Mixtur Double WaschProdukt WaschProdukt
   deriving (Eq, Show, Ord)
 
+-- ** Beispiele
 tensid = Tensid (PH 5.5)
 schuppenmittel = Pflegestoff Schuppen
 
--- Bestellung
+-- * Entitäten
+-- ** Bestellung
 
 type Bestellung = Entitaet BestellDaten
 
 data BestellDaten = BestellDaten ProduktName Menge
   deriving Show
 
--- Entität
+-- ** Entität
 
 data Entitaet daten = Entitaet Id daten
   deriving (Show)
@@ -51,7 +57,7 @@ instance Eq (Entitaet a) where
 
 data Id = Id Int deriving (Eq, Show)
 
--- zurück zur Bestellung
+-- ** zurück zur Bestellung
 
 data ProduktName = ProduktName String
   deriving (Eq, Show, Ord)
@@ -65,7 +71,7 @@ bestellungShampoo = Entitaet (Id 2) (BestellDaten (ProduktName "Schuppenshampoo"
 bestellungShampooZuViel = Entitaet (Id 3) (BestellDaten (ProduktName "Schuppenshampoo") (Menge 20))
 bestellungUnbekannt = Entitaet (Id 4) (BestellDaten (ProduktName "Erdbeermilch") (Menge 1))
 
--- Katalog
+-- ** Katalog
 
 type Katalog = Map ProduktName WaschProdukt
 
@@ -74,7 +80,7 @@ derKatalog = Map.fromList [
     (ProduktName "Schuppenshampoo", Mixtur 0.9 (Einfach tensid) (Einfach schuppenmittel))
   ]
 
--- Vorrat
+-- ** Vorrat
 
 data Vorrat = Vorrat (Map Grundbestandteil Menge)
   deriving (Eq, Show)
@@ -85,7 +91,7 @@ derVorrat = Vorrat (Map.fromList [
     (tensid, Menge 10), (schuppenmittel, Menge 1)
   ])
 
--- Events
+-- * Events
 
 data Event =
     BestellungAkzeptiert Bestellung
@@ -98,17 +104,21 @@ data Event =
   | BestellungVersandt Bestellung
   deriving (Show)
 
--- Aggregat
+-- * Aggregat
 
+-- ** bestelle
 bestelle :: Bestellung -> Vorrat -> Katalog -> [Event]
 bestelle bestellung aktuellerVorrat katalog = undefined
 
+-- ** verarbeiteBestellung
 verarbeiteBestellung :: Bestellung -> Vorrat -> Katalog -> [Event]
 verarbeiteBestellung bestellung gesamtVorrat katalog = undefined
 
+-- ** findeProdukt
 findeProdukt :: ProduktName -> Katalog -> (Maybe WaschProdukt)
 findeProdukt produktname katalog = Map.lookup produktname katalog
 
+-- ** liefereBestellung
 liefereBestellung :: Bestellung -> WaschProdukt -> Vorrat -> [Event]
 liefereBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt gesamtVorrat =
   let benoetigterVorrat@(Vorrat bestandteile) = benoetigterVorratFuer waschProdukt menge
@@ -118,11 +128,13 @@ liefereBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt 
   else
     [NichtGenugVorrat bestellung, BestellungStorniert bestellung]
 
+-- ** benoetigterVorratFuer
 benoetigterVorratFuer :: WaschProdukt -> Menge -> Vorrat
 benoetigterVorratFuer reinigungsprodukt (Menge menge) =
  (Vorrat (fmap (\ anteil -> Menge (menge * anteil))
                (reinigungsProduktBestandteile reinigungsprodukt)))
 
+-- ** reinigungsProduktBestandteile
 reinigungsProduktBestandteile :: WaschProdukt -> Map Grundbestandteil Double
 reinigungsProduktBestandteile (Einfach bestandteil) = Map.singleton bestandteil 1.0
 reinigungsProduktBestandteile (Mixtur menge1 produkt1 produkt2) =
@@ -131,16 +143,17 @@ reinigungsProduktBestandteile (Mixtur menge1 produkt1 produkt2) =
       bestandteil2 = fmap (\ p -> p * menge2) (reinigungsProduktBestandteile produkt2)
   in Map.unionWith (+) bestandteil1 bestandteil2
 
+-- ** vorratIstAusreichendFuer
 vorratIstAusreichendFuer :: Vorrat -> Vorrat -> Bool
 vorratIstAusreichendFuer benoetigt gesamt =
   istVorratKorrekt (entnehmeVorrat gesamt benoetigt)
 
--- Invariante für den Vorrat
--- :info Map.foldr
+-- ** Invariante für den Vorrat
 istVorratKorrekt :: Vorrat -> Bool
 istVorratKorrekt (Vorrat vorrat) =
   undefined
 
+-- ** entnehmeVorrat
 entnehmeVorrat :: Vorrat -> Vorrat -> Vorrat
 entnehmeVorrat gesamt (Vorrat benoetigt) =
   Map.foldrWithKey (\ grundbestandteil menge vorrat ->
@@ -156,7 +169,7 @@ entnehmeGrundbestandteil (Vorrat vorrat) grundbestandteil (Menge menge) =
                     Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
        grundbestandteil vorrat)
 
--- Fold über Events
+-- * Fold über Events
 
 eventsEffektAufVorrat :: Vorrat -> [Event] -> Vorrat
 eventsEffektAufVorrat vorrat events =
@@ -173,7 +186,7 @@ vorratAus :: Grundbestandteil -> Menge -> Vorrat
 vorratAus grundbestandteil menge =
   Vorrat (Map.fromList [(grundbestandteil, menge)])
 
--- Version mit Repository / Monade
+-- * Repository
 
 bestelldatenUnbekannt = BestellDaten (ProduktName "Erdbeermilch") (Menge 1)
 bestelldatenShampoo = BestellDaten (ProduktName "Schuppenshampoo") (Menge 1)
