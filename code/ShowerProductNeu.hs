@@ -126,7 +126,6 @@ liefereBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt 
   else
     [NichtGenugVorrat bestellung, BestellungStorniert bestellung]
 
-
 benoetigterVorratFuer :: WaschProdukt -> Menge -> Vorrat
 benoetigterVorratFuer reinigungsprodukt (Menge menge) =
          (Vorrat (fmap (\ anteil -> Menge (menge * anteil)) (reinigungsProduktBestandteile reinigungsprodukt)))
