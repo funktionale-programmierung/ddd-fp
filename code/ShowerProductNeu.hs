@@ -18,24 +18,23 @@ import Data.Monoid as Monoid
 class Monoid g => Group g where
   invert :: g -> g
 
-verarbeiteBestellung :: Bestellung -> Vorrat -> Katalog -> [Event]
-verarbeiteBestellung bestellung aktuellerVorrat katalog =
-  [BestellungAkzeptiert bestellung] ++ (findeProduktMischeUndVersendeBestellung bestellung aktuellerVorrat katalog)
+bestelle :: Bestellung -> Vorrat -> Katalog -> [Event]
+bestelle bestellung aktuellerVorrat katalog =
+  [BestellungAkzeptiert bestellung] ++ (verarbeiteBestellung bestellung aktuellerVorrat katalog)
 
-findeProduktMischeUndVersendeBestellung :: Bestellung -> Vorrat -> Katalog -> [Event]
-findeProduktMischeUndVersendeBestellung bestellung@((Entitaet _ (BestellDaten produktname _))) gesamtVorrat katalog =
+verarbeiteBestellung :: Bestellung -> Vorrat -> Katalog -> [Event]
+verarbeiteBestellung bestellung@((Entitaet _ (BestellDaten produktname _))) gesamtVorrat katalog =
   let gewuenschtesProdukt = findeProdukt produktname katalog
   in
   case gewuenschtesProdukt of
     Nothing -> [ProduktNichtGefunden bestellung, BestellungStorniert bestellung]
-    Just waschProdukt -> [BestellungBestaetigt bestellung] ++ (mischeUndVersendeBestellung bestellung waschProdukt gesamtVorrat)
+    Just waschProdukt -> [BestellungBestaetigt bestellung] ++ (liefereBestellung bestellung waschProdukt gesamtVorrat)
 
 findeProdukt :: ProduktName -> Katalog -> (Maybe WaschProdukt)
 findeProdukt produktname katalog = Map.lookup produktname katalog
 
-
-mischeUndVersendeBestellung :: Bestellung -> WaschProdukt -> Vorrat -> [Event]
-mischeUndVersendeBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt gesamtVorrat =
+liefereBestellung :: Bestellung -> WaschProdukt -> Vorrat -> [Event]
+liefereBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt gesamtVorrat =
   let benoetigterVorrat@(Vorrat bestandteile) = benoetigterVorratFuer waschProdukt menge
   in
   if (vorratIstAusreichendFuer benoetigterVorrat gesamtVorrat) then
@@ -195,10 +194,10 @@ eventsEffektAufVorrat vorrat events =
 
 -- Version mit Repository / Monade
 
-verarbeiteBestellung' :: InterfaceIdGenerator m => BestellDaten -> Vorrat -> Katalog -> m [Event]
-verarbeiteBestellung' bestelldaten aktuellerVorrat katalog =
+bestelle' :: InterfaceIdGenerator m => BestellDaten -> Vorrat -> Katalog -> m [Event]
+bestelle' bestelldaten aktuellerVorrat katalog =
   do bestellung <- baueEntitaet bestelldaten
-     return ([BestellungAkzeptiert bestellung] ++ (findeProduktMischeUndVersendeBestellung bestellung aktuellerVorrat katalog))
+     return ([BestellungAkzeptiert bestellung] ++ (verarbeiteBestellung bestellung aktuellerVorrat katalog))
 
 class Monad m => InterfaceIdGenerator m where
   newId :: m Id
