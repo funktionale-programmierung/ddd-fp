@@ -26,7 +26,7 @@ data PH = PH Double deriving (Eq, Show, Ord)
 
 data WaschProdukt =
     Einfach Grundbestandteil
-  | Gemisch Double WaschProdukt Double WaschProdukt
+  | Mixtur Double WaschProdukt Double WaschProdukt
   deriving (Eq, Show, Ord)
 
 tensid = Tensid (PH 5.5)
@@ -69,7 +69,7 @@ type Katalog = Map ProduktName WaschProdukt
 
 derKatalog = Map.fromList [
     (ProduktName "Duschgel", Einfach tensid),
-    (ProduktName "Schuppenshampoo", Gemisch 0.9 (Einfach tensid) 0.1 (Einfach schuppenmittel))
+    (ProduktName "Schuppenshampoo", Mixtur 0.9 (Einfach tensid) 0.1 (Einfach schuppenmittel))
   ]
 
 -- Vorrat
@@ -96,7 +96,7 @@ data Event =
   | BestellungBestaetigt Bestellung
   | GrundbestandteilEntnommen Bestellung Grundbestandteil Menge
   | NichtGenugVorrat Bestellung
-  | ProduktGemischt Bestellung
+  | ProduktMixturt Bestellung
   | BestellungVersandt Bestellung
   deriving (Show)
 
@@ -122,7 +122,7 @@ liefereBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt 
   let benoetigterVorrat@(Vorrat bestandteile) = benoetigterVorratFuer waschProdukt menge
   in
   if (vorratIstAusreichendFuer benoetigterVorrat gesamtVorrat) then
-    (fmap (uncurry (GrundbestandteilEntnommen bestellung)) (Map.toList bestandteile)) ++ [ProduktGemischt bestellung, BestellungVersandt bestellung]
+    (fmap (uncurry (GrundbestandteilEntnommen bestellung)) (Map.toList bestandteile)) ++ [ProduktMixturt bestellung, BestellungVersandt bestellung]
   else
     [NichtGenugVorrat bestellung, BestellungStorniert bestellung]
 
@@ -132,7 +132,7 @@ benoetigterVorratFuer reinigungsprodukt (Menge menge) =
 
 reinigungsProduktBestandteile :: WaschProdukt -> Map Grundbestandteil Double
 reinigungsProduktBestandteile (Einfach bestandteil) = Map.singleton bestandteil 1.0
-reinigungsProduktBestandteile (Gemisch menge1 produkt1 menge2 produkt2) =
+reinigungsProduktBestandteile (Mixtur menge1 produkt1 menge2 produkt2) =
   let bestandteil1 = fmap (\ p -> p * menge1) (reinigungsProduktBestandteile produkt1)
       bestandteil2 = fmap (\ p -> p * menge2) (reinigungsProduktBestandteile produkt2)
   in Map.unionWith (+) bestandteil1 bestandteil2
