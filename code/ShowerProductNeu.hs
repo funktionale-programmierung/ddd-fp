@@ -15,14 +15,13 @@ import Data.Monoid as Monoid
 -- Domänenmodellierung / Value Objects
 
 data Grundbestandteil =
-    Tensid Farbe PH
-  | Pflegestoff Farbe Haartyp
+    Tensid PH
+  | Pflegestoff Haartyp
   deriving (Eq, Show, Ord)
 
 data Haartyp = Fettig | Trocken | Normal | Schuppen
   deriving (Eq, Show, Ord)
 
-data Farbe = Farbe String deriving (Eq, Show, Ord)
 data PH = PH Double deriving (Eq, Show, Ord)
 
 data WaschProdukt =
@@ -30,8 +29,8 @@ data WaschProdukt =
   | Gemisch Double WaschProdukt Double WaschProdukt
   deriving (Eq, Show, Ord)
 
-tensid = Tensid (Farbe "rot") (PH 5.5)
-schuppenmittel = Pflegestoff (Farbe "gelb") Schuppen
+tensid = Tensid (PH 5.5)
+schuppenmittel = Pflegestoff Schuppen
 
 -- Bestellung
 
