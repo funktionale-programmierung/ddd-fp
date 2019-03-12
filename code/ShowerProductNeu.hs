@@ -55,10 +55,27 @@ reinigungsProduktBestandteile (Gemisch menge1 produkt1 menge2 produkt2) =
       bestandteil2 = fmap (\ p -> p * menge2) (reinigungsProduktBestandteile produkt2)
   in Map.unionWith (+) bestandteil1 bestandteil2
 
+-- ein Produkt aus dem Vorrat entnehmen
+entnehmeGrundbestandteil :: Vorrat -> Grundbestandteil -> Menge -> Vorrat
+entnehmeGrundbestandteil (Vorrat vorrat) grundbestandteil (Menge menge) =
+  Vorrat
+    (Map.alter (\ mengeVorrat -> case mengeVorrat of
+                    Nothing -> Just (Menge (- menge))
+                    Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
+       grundbestandteil vorrat)
+
+entnehmeVorrat' :: Vorrat -> Vorrat -> Vorrat
+entnehmeVorrat' gesamt (Vorrat benoetigt) =
+  Map.foldrWithKey (\ grundbestandteil menge vorrat ->
+                      entnehmeGrundbestandteil vorrat grundbestandteil menge)
+    gesamt benoetigt
+
+entnehmeVorrat :: Vorrat -> Vorrat -> Vorrat
+entnehmeVorrat gesamt benoetigt = gesamt <> (invert benoetigt)
+
 vorratIstAusreichendFuer :: Vorrat -> Vorrat -> Bool
 vorratIstAusreichendFuer benoetigt gesamt =
-  istVorratKorrekt (gesamt <> (invert benoetigt))
-
+  istVorratKorrekt (entnehmeVorrat gesamt benoetigt)
 
 instance Group Vorrat where
   invert (Vorrat bestandteile) = Vorrat (fmap invert bestandteile)
@@ -167,7 +184,7 @@ bestelldatenShampoo = BestellDaten (ProduktName "Schuppenshampoo") (Menge 1)
 
 eventEffektAufVorrat :: Vorrat -> Event -> Vorrat
 eventEffektAufVorrat vorrat (GrundbestandteilEntnommen bestellung grundbestandteil menge) =
-  vorrat <> (invert (vorratAus grundbestandteil menge))
+  entnehmeVorrat vorrat (vorratAus grundbestandteil menge)
 eventEffektAufVorrat vorrat _ = vorrat
 
 eventsEffektAufVorrat :: Vorrat -> [Event] -> Vorrat
