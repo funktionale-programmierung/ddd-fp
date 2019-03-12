@@ -55,7 +55,67 @@ ersteId = Id 0
 
 naechsteId :: Id -> Id
 naechsteId (Id id) = Id (id + 1)
-                        
+
+class Monad m => MonadIdGenerator m where
+  newId :: m Id
+
+newtype IdGeneratorT m a = IdGeneratorT { runIdGeneratorT :: Int -> m (a, Int) }
+
+instance Functor m => Functor (IdGeneratorT m) where
+    fmap f m = IdGeneratorT (\ n ->
+        fmap (\ (a, n') -> (f a, n')) (runIdGeneratorT m n))
+
+instance (Functor m, Monad m) => Applicative (IdGeneratorT m) where
+    pure a = IdGeneratorT (\ n -> return (a, n))
+
+    IdGeneratorT mf <*> IdGeneratorT mx =
+      IdGeneratorT (\ n ->
+        do (f, n') <- mf n
+           (x, n'') <- mx n'
+           return (f x, n''))
+
+instance (Monad m) => Monad (IdGeneratorT m) where
+    return a = IdGeneratorT (\ n -> return (a, n))
+    m >>= k  =
+      IdGeneratorT (\ n ->
+        do (a, n') <- runIdGeneratorT m n
+           runIdGeneratorT (k a) n')
+    fail str = IdGeneratorT (\ _ -> fail str)
+
+instance Monad m => MonadIdGenerator (IdGeneratorT m) where
+  newId = IdGeneratorT (\ n -> return (Id n, n+1))
+
+newtype IdGenerator a = IdGenerator { runIdGenerator :: Int -> (a, Int) }
+
+instance Functor IdGenerator where
+  fmap f m =
+    IdGenerator (\ n ->
+                   let (x, n') = runIdGenerator m n
+                   in (f x, n'))
+                            
+
+instance Applicative IdGenerator where
+  pure x = IdGenerator (\ n -> (x, n))
+
+  gf <*> gx =
+    IdGenerator (\ n ->
+                   let (f, n') = runIdGenerator gf n
+                       (x, n'') = runIdGenerator gx n'
+                   in (f x, n''))
+
+instance Monad IdGenerator where
+  return x = IdGenerator (\ n -> (x, n))
+  m >>= k  =
+    IdGenerator (\ n ->
+                   let (x, n') = runIdGenerator m n
+                   in runIdGenerator (k x) n')
+
+instance MonadIdGenerator m => MonadIdGenerator (StateT s m) where
+  newId = lift newId
+
+instance MonadIdGenerator m => MonadIdGenerator (ReaderT s m) where
+  newId = lift newId
+
 data Entitaet daten = Entitaet Id daten
 
 instance Eq (Entitaet a) where
@@ -175,39 +235,6 @@ data Command =
  | MischeProdkt Bestellung
  | SendeBestellung Bestellung
 
-class HatId record where
-  neueId :: record -> (Id, record)
-
-class HatVorrat record where
-  vorratWeniger :: record -> Vorrat -> (Vorrat, record)
-
-type BestellungsBearbeitung state m = (MonadState state m, HatId state, HatVorrat state)
-
-data BearbeitungsZustand = BearbeitungsZustand { zustandId :: Id, zustandVorrat :: Vorrat }
-
-instance HatId BearbeitungsZustand where
-  neueId (zustand@(BearbeitungsZustand { zustandId = id })) =
-    (id, zustand { zustandId = naechsteId id })
-
-instance HatVorrat BearbeitungsZustand where
-  vorratWeniger (zustand@(BearbeitungsZustand { zustandVorrat = zustandVorrat })) vorrat  =
-    let zustandVorrat' = vorratMinus zustandVorrat vorrat
-    in (zustandVorrat', zustand { zustandVorrat = zustandVorrat' })
-
-type BestellungsBearbeitungT m = StateT BearbeitungsZustand m
-
-generiereId :: BestellungsBearbeitung state m => m Id
-generiereId =
-  do state <- State.get
-     let (id, state') = neueId state
-     State.put state'
-     return id
-     
-neueEntitaet :: BestellungsBearbeitung state m => a -> m (Entitaet a)
-neueEntitaet zustand =
-   do id <- generiereId
-      return (Entitaet id zustand)
-
 data Event =
     BestellungAkzeptiert Bestellung
   | ProduktNichtGefunden Bestellung
@@ -218,6 +245,9 @@ data Event =
   | ProduktGemischt Bestellung
   | BestellungVersandt Bestellung
 
+type VorratAggregatorT m = StateT Vorrat m
+type VorratAggregator m = MonadState Vorrat m
+
 entnehmeGrundbestandteileFuerBestellung :: Bestellung -> Map Grundbestandteil Menge -> [Event]
 entnehmeGrundbestandteileFuerBestellung bestellung bestandteile =
     fmap (uncurry (GrundbestandteilEntnommen bestellung)) (toList bestandteile)
@@ -226,19 +256,23 @@ bestellungsVorratsEntnahme :: Bestellung -> Vorrat -> [Event]
 bestellungsVorratsEntnahme bestellung (Vorrat vorrat) =
     fmap (uncurry (GrundbestandteilEntnommen bestellung)) (toList vorrat)
 
-aktuellerVorrat :: BestellungsBearbeitung state m => m Vorrat
-aktuellerVorrat =
-  do state <- State.get
-     let (vorrat, _) = vorratWeniger state leererVorrat
-     return vorrat
+type EntitaetGenerator = IdGenerator
+type MonadEntitaetGenerator m = MonadIdGenerator m
 
-entnimmVorrat :: BestellungsBearbeitung state m => Vorrat -> m ()
+neueEntitaet :: MonadEntitaetGenerator m => a -> m (Entitaet a)
+neueEntitaet zustand =
+   do id <- newId
+      return (Entitaet id zustand)
+
+aktuellerVorrat :: VorratAggregator m => m Vorrat
+aktuellerVorrat = State.get
+
+entnimmVorrat :: VorratAggregator m => Vorrat -> m ()
 entnimmVorrat vorrat =
-  do state <- State.get
-     let (vorrat', state') = vorratWeniger state vorrat
-     State.put state'
-           
-verarbeiteCommand :: (ProduktErmittlung m, BestellungsBearbeitung state m) => Command -> m [Event]
+  do lagerVorrat <- State.get
+     State.put (vorratMinus lagerVorrat vorrat)
+
+verarbeiteCommand :: (MonadEntitaetGenerator m, ProduktErmittlung m, VorratAggregator m) => Command -> m [Event]
 verarbeiteCommand (AkzeptiereBestellung produktname menge) =
   do bestellung <- neueEntitaet (produktname, menge)
      return [BestellungAkzeptiert bestellung]
@@ -256,12 +290,15 @@ verarbeiteCommand (BearbeiteBestellung bestellung)  =
      else
        return [NichtGenugVorrat bestellung]
 
-type Bearbeitung a = (BestellungsBearbeitungT (ProduktErmittlungT Identity)) a
+type Bearbeitung a = (ProduktErmittlungT (VorratAggregatorT EntitaetGenerator)) a
 
-bearbeite :: Katalog -> BearbeitungsZustand -> Bearbeitung a -> (a, BearbeitungsZustand)
-bearbeite katalog bearbeitungszustand verarbeitung =
-  runReader (runStateT verarbeitung bearbeitungszustand) katalog
+bearbeite :: Katalog -> Id -> Vorrat -> Bearbeitung a -> (a, Id, Vorrat)
+bearbeite katalog (Id n) vorrat bearbeitung =
+  let ((x, vorrat'), n') = runIdGenerator (runStateT (runReaderT bearbeitung katalog) vorrat) n
+  in (x, Id n', vorrat')
 
 bearbeiteAlles :: Katalog -> Bearbeitung a -> a
 bearbeiteAlles katalog bearbeitung =
-  fst (bearbeite katalog (BearbeitungsZustand ersteId leererVorrat) bearbeitung)
+  let (x, _, _) = (bearbeite katalog ersteId leererVorrat bearbeitung)
+  in x
+
