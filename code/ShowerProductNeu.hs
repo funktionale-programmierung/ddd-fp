@@ -23,7 +23,7 @@ verarbeiteBestellung bestellung aktuellerVorrat katalog =
   [BestellungAkzeptiert bestellung] ++ (findeProduktMischeUndVersendeBestellung bestellung aktuellerVorrat katalog)
 
 findeProduktMischeUndVersendeBestellung :: Bestellung -> Vorrat -> Katalog -> [Event]
-findeProduktMischeUndVersendeBestellung bestellung@((Entitaet _ (produktname, _))) gesamtVorrat katalog =
+findeProduktMischeUndVersendeBestellung bestellung@((Entitaet _ (BestellDaten produktname _))) gesamtVorrat katalog =
   let gewuenschtesProdukt = findeProdukt produktname katalog
   in
   case gewuenschtesProdukt of
@@ -35,7 +35,7 @@ findeProdukt produktname katalog = Map.lookup produktname katalog
 
 
 mischeUndVersendeBestellung :: Bestellung -> WaschProdukt -> Vorrat -> [Event]
-mischeUndVersendeBestellung bestellung@((Entitaet _ (_, menge))) waschProdukt gesamtVorrat =
+mischeUndVersendeBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt gesamtVorrat =
   let benoetigterVorrat@(Vorrat bestandteile) = benoetigterVorratFuer waschProdukt menge
   in
   if (vorratIstAusreichendFuer benoetigterVorrat gesamtVorrat) then
@@ -109,7 +109,10 @@ leereMenge = Menge 0
 newtype ProduktName = ProduktName String
   deriving (Eq, Show, Ord)
 
-type Bestellung = Entitaet (ProduktName, Menge)
+data BestellDaten = BestellDaten ProduktName Menge
+  deriving Show
+  
+type Bestellung = Entitaet BestellDaten
 
 type Katalog = Map ProduktName WaschProdukt
 
@@ -144,9 +147,9 @@ derVorrat = Vorrat (Map.fromList [
     (tensid, Menge 10), (schuppenmittel, Menge 1)
   ])
 
-bestellungDuschgel = Entitaet (Id 1) (ProduktName "Duschgel", Menge 1)
-bestellungShampoo = Entitaet (Id 2) (ProduktName "Schuppenshampoo", Menge 1)
-bestellungShampooZuViel = Entitaet (Id 3) (ProduktName "Schuppenshampoo", Menge 20)
-bestellungUnbekannt = Entitaet (Id 4) (ProduktName "Erdbeermilch", Menge 1)
+bestellungDuschgel = Entitaet (Id 1) (BestellDaten (ProduktName "Duschgel") (Menge 1))
+bestellungShampoo = Entitaet (Id 2) (BestellDaten (ProduktName "Schuppenshampoo") (Menge 1))
+bestellungShampooZuViel = Entitaet (Id 3) (BestellDaten (ProduktName "Schuppenshampoo") (Menge 20))
+bestellungUnbekannt = Entitaet (Id 4) (BestellDaten (ProduktName "Erdbeermilch") (Menge 1))
 
 
