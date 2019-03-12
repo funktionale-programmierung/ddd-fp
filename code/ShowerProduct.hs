@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE PartialTypeSignatures #-}
@@ -110,6 +112,9 @@ instance Monad IdGenerator where
                    let (x, n') = runIdGenerator m n
                    in runIdGenerator (k x) n')
 
+instance MonadIdGenerator IdGenerator where
+  newId = IdGenerator (\ n -> (Id n, n+1))
+    
 instance MonadIdGenerator m => MonadIdGenerator (StateT s m) where
   newId = lift newId
 
@@ -160,18 +165,18 @@ type Bestellung = Entitaet (ProduktName, Menge)
 
 type Katalog = Map ProduktName WaschProdukt
 
-type ProduktErmittlungT m = ReaderT Katalog m
-type ProduktErmittlung m = MonadReader Katalog m
+class Monad m => ProduktErmittlung m where
+  aktuellerKatalog :: m Katalog
 
 findeProdukt :: ProduktErmittlung m => ProduktName -> m (Maybe WaschProdukt)
 findeProdukt produktname =
-  do katalog <- Reader.ask
+  do katalog <- aktuellerKatalog
      return (Map.lookup produktname katalog)
 
 -- die benötigten Mengen für eine Bestellung
 benoetigteMengen :: ProduktErmittlung m => Bestellung -> m (Map Grundbestandteil Menge)
 benoetigteMengen (Entitaet _ (produktname, Menge menge)) =
-  do katalog <- Reader.ask
+  do katalog <- aktuellerKatalog
      case Map.lookup produktname katalog of
        Nothing -> return Map.empty
        Just reinigungsprodukt ->
@@ -180,7 +185,7 @@ benoetigteMengen (Entitaet _ (produktname, Menge menge)) =
 -- der benötigte Vorrat für eine Bestellung
 benoetigterVorrat :: ProduktErmittlung m => Bestellung -> m Vorrat
 benoetigterVorrat (Entitaet _ (produktname, Menge menge)) =
-  do katalog <- Reader.ask
+  do katalog <- aktuellerKatalog
      case Map.lookup produktname katalog of
        Nothing -> return leererVorrat
        Just reinigungsprodukt ->
@@ -194,9 +199,10 @@ sindGrundbestandteileBevorratet vorrat mengen =
     True mengen
 
 -- sind die für die Bestellung benötigten Mengen bevorratet?
-sindGrundbestandteileFuerBestellungBevorratet :: Vorrat -> Bestellung -> Katalog -> Bool
-sindGrundbestandteileFuerBestellungBevorratet vorrat bestellung katalog =
-  sindGrundbestandteileBevorratet vorrat (benoetigteMengen bestellung katalog)
+sindGrundbestandteileFuerBestellungBevorratet :: ProduktErmittlung m => Vorrat -> Bestellung -> m Bool
+sindGrundbestandteileFuerBestellungBevorratet vorrat bestellung =
+  do mengen <- benoetigteMengen bestellung
+     return (sindGrundbestandteileBevorratet vorrat mengen)
 
 -- Invariante für den Vorrat
 istVorratKorrekt :: Vorrat -> Bool
@@ -290,6 +296,11 @@ verarbeiteCommand (BearbeiteBestellung bestellung)  =
      else
        return [NichtGenugVorrat bestellung]
 
+type ProduktErmittlungT m = ReaderT Katalog m
+
+instance Monad m => ProduktErmittlung (ProduktErmittlungT m) where
+  aktuellerKatalog = Reader.ask
+
 type Bearbeitung a = (ProduktErmittlungT (VorratAggregatorT EntitaetGenerator)) a
 
 bearbeite :: Katalog -> Id -> Vorrat -> Bearbeitung a -> (a, Id, Vorrat)
@@ -299,6 +310,6 @@ bearbeite katalog (Id n) vorrat bearbeitung =
 
 bearbeiteAlles :: Katalog -> Bearbeitung a -> a
 bearbeiteAlles katalog bearbeitung =
-  let (x, _, _) = (bearbeite katalog ersteId leererVorrat bearbeitung)
+  let (x, _, _) = bearbeite katalog ersteId leererVorrat bearbeitung
   in x
 
