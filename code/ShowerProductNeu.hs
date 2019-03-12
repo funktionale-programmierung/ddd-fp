@@ -6,9 +6,6 @@
 import Data.Map as Map
 import qualified Data.Map.Strict (Map)
 
-import Control.Monad.State.Lazy as State
-import qualified Control.Monad.State.Lazy (State)
-
 import qualified Data.Monoid (Monoid)
 import Data.Monoid as Monoid
 
