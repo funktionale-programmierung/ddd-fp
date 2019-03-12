@@ -23,7 +23,7 @@ data PH = PH Double deriving (Eq, Show, Ord)
 
 data WaschProdukt =
     Einfach Grundbestandteil
-  | Mixtur Double WaschProdukt Double WaschProdukt
+  | Mixtur Double WaschProdukt WaschProdukt
   deriving (Eq, Show, Ord)
 
 tensid = Tensid (PH 5.5)
@@ -71,7 +71,7 @@ type Katalog = Map ProduktName WaschProdukt
 
 derKatalog = Map.fromList [
     (ProduktName "Duschgel", Einfach tensid),
-    (ProduktName "Schuppenshampoo", Mixtur 0.9 (Einfach tensid) 0.1 (Einfach schuppenmittel))
+    (ProduktName "Schuppenshampoo", Mixtur 0.9 (Einfach tensid) (Einfach schuppenmittel))
   ]
 
 -- Vorrat
@@ -134,8 +134,9 @@ benoetigterVorratFuer reinigungsprodukt (Menge menge) =
 
 reinigungsProduktBestandteile :: WaschProdukt -> Map Grundbestandteil Double
 reinigungsProduktBestandteile (Einfach bestandteil) = Map.singleton bestandteil 1.0
-reinigungsProduktBestandteile (Mixtur menge1 produkt1 menge2 produkt2) =
-  let bestandteil1 = fmap (\ p -> p * menge1) (reinigungsProduktBestandteile produkt1)
+reinigungsProduktBestandteile (Mixtur menge1 produkt1 produkt2) =
+  let menge2 = 1 - menge1
+      bestandteil1 = fmap (\ p -> p * menge1) (reinigungsProduktBestandteile produkt1)
       bestandteil2 = fmap (\ p -> p * menge2) (reinigungsProduktBestandteile produkt2)
   in Map.unionWith (+) bestandteil1 bestandteil2
 
