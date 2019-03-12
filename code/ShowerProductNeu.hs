@@ -12,8 +12,96 @@ import qualified Control.Monad.State.Lazy (State)
 import qualified Data.Monoid (Monoid)
 import Data.Monoid as Monoid
 
-class Monoid g => Group g where
-  invert :: g -> g
+-- Domänenmodellierung / Value Objects
+
+data Grundbestandteil =
+    Tensid Farbe PH
+  | Pflegestoff Farbe Haartyp
+  deriving (Eq, Show, Ord)
+
+data Haartyp = Fettig | Trocken | Normal | Schuppen
+  deriving (Eq, Show, Ord)
+
+data Farbe = Farbe String deriving (Eq, Show, Ord)
+data PH = PH Double deriving (Eq, Show, Ord)
+
+data WaschProdukt =
+    Einfach Grundbestandteil
+  | Gemisch Double WaschProdukt Double WaschProdukt
+  deriving (Eq, Show, Ord)
+
+tensid = Tensid (Farbe "rot") (PH 5.5)
+schuppenmittel = Pflegestoff (Farbe "gelb") Schuppen
+
+-- Bestellung
+
+type Bestellung = Entitaet BestellDaten
+
+data BestellDaten = BestellDaten ProduktName Menge
+  deriving Show
+
+-- Entität
+
+data Entitaet daten = Entitaet Id daten
+  deriving (Show)
+
+instance Eq (Entitaet a) where
+  (Entitaet id1 _) == (Entitaet id2 _) = id1 == id2
+
+data Id = Id Int deriving (Eq, Show)
+
+-- zurück zur Bestellung
+
+data ProduktName = ProduktName String
+  deriving (Eq, Show, Ord)
+
+data Menge = Menge Double deriving (Eq, Show, Ord)
+
+leereMenge = Menge 0
+
+bestellungDuschgel = Entitaet (Id 1) (BestellDaten (ProduktName "Duschgel") (Menge 1))
+bestellungShampoo = Entitaet (Id 2) (BestellDaten (ProduktName "Schuppenshampoo") (Menge 1))
+bestellungShampooZuViel = Entitaet (Id 3) (BestellDaten (ProduktName "Schuppenshampoo") (Menge 20))
+bestellungUnbekannt = Entitaet (Id 4) (BestellDaten (ProduktName "Erdbeermilch") (Menge 1))
+
+-- Katalog
+
+type Katalog = Map ProduktName WaschProdukt
+
+derKatalog = Map.fromList [
+    (ProduktName "Duschgel", Einfach tensid),
+    (ProduktName "Schuppenshampoo", Gemisch 0.9 (Einfach tensid) 0.1 (Einfach schuppenmittel))
+  ]
+
+-- Vorrat
+
+data Vorrat = Vorrat (Map Grundbestandteil Menge)
+  deriving (Eq, Show)
+
+leererVorrat = Vorrat Map.empty
+
+derVorrat = Vorrat (Map.fromList [
+    (tensid, Menge 10), (schuppenmittel, Menge 1)
+  ])
+
+-- Events
+
+data Event =
+    BestellungAkzeptiert Bestellung
+  | ProduktNichtGefunden Bestellung
+  | BestellungStorniert Bestellung
+  | BestellungBestaetigt Bestellung
+  | GrundbestandteilEntnommen Bestellung Grundbestandteil Menge
+  | NichtGenugVorrat Bestellung
+  | ProduktGemischt Bestellung
+  | BestellungVersandt Bestellung
+  deriving (Show)
+
+-- Aggregat
+
+vorratAus :: Grundbestandteil -> Menge -> Vorrat
+vorratAus grundbestandteil menge =
+  Vorrat (Map.fromList [(grundbestandteil, menge)])
 
 bestelle :: Bestellung -> Vorrat -> Katalog -> [Event]
 bestelle bestellung aktuellerVorrat katalog =
@@ -60,18 +148,28 @@ entnehmeGrundbestandteil (Vorrat vorrat) grundbestandteil (Menge menge) =
                     Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
        grundbestandteil vorrat)
 
+vorratIstAusreichendFuer :: Vorrat -> Vorrat -> Bool
+vorratIstAusreichendFuer benoetigt gesamt =
+  istVorratKorrekt (entnehmeVorrat gesamt benoetigt)
+
+-- Invariante für den Vorrat
+istVorratKorrekt :: Vorrat -> Bool
+istVorratKorrekt (Vorrat vorrat) =
+  Map.foldr (\ (Menge menge) istKorrekt -> istKorrekt && (menge >= 0)) True vorrat
+
 entnehmeVorrat' :: Vorrat -> Vorrat -> Vorrat
 entnehmeVorrat' gesamt (Vorrat benoetigt) =
   Map.foldrWithKey (\ grundbestandteil menge vorrat ->
                       entnehmeGrundbestandteil vorrat grundbestandteil menge)
     gesamt benoetigt
 
+-- alternative Version entnehmeVorrat mit Gruppen
+
 entnehmeVorrat :: Vorrat -> Vorrat -> Vorrat
 entnehmeVorrat gesamt benoetigt = gesamt <> (invert benoetigt)
 
-vorratIstAusreichendFuer :: Vorrat -> Vorrat -> Bool
-vorratIstAusreichendFuer benoetigt gesamt =
-  istVorratKorrekt (entnehmeVorrat gesamt benoetigt)
+class Monoid g => Group g where
+  invert :: g -> g
 
 instance Group Vorrat where
   invert (Vorrat bestandteile) = Vorrat (fmap invert bestandteile)
@@ -85,53 +183,6 @@ instance Monoid Menge where
 instance Semigroup Menge where
   (Menge m1) <> (Menge m2) = Menge (m1 + m2)
 
-
--- Invariante für den Vorrat
-istVorratKorrekt :: Vorrat -> Bool
-istVorratKorrekt (Vorrat vorrat) =
-  Map.foldr (\ (Menge menge) istKorrekt -> istKorrekt && (menge >= 0)) True vorrat
-
-data Farbe = Farbe String deriving (Eq, Show, Ord)
-data PH = PH Double deriving (Eq, Show, Ord)
-
-data Haartyp = Fettig | Trocken | Normal | Schuppen
-  deriving (Eq, Show, Ord)
-
-data Grundbestandteil =
-    Tensid Farbe PH
-  | Pflegestoff Farbe Haartyp
-  deriving (Eq, Show, Ord)
-
-data WaschProdukt =
-    Einfach Grundbestandteil
-  | Gemisch Double WaschProdukt Double WaschProdukt
-  deriving (Eq, Show, Ord)
-
-data Id = Id Int deriving (Eq, Show)
-
-data Entitaet daten = Entitaet Id daten
-  deriving (Show)
-
-instance Eq (Entitaet a) where
-  (Entitaet id1 _) == (Entitaet id2 _) = id1 == id2
-
-data Menge = Menge Double deriving (Eq, Show, Ord)
-
-leereMenge = Menge 0
-
-data ProduktName = ProduktName String
-  deriving (Eq, Show, Ord)
-
-data BestellDaten = BestellDaten ProduktName Menge
-  deriving Show
-  
-type Bestellung = Entitaet BestellDaten
-
-type Katalog = Map ProduktName WaschProdukt
-
-data Vorrat = Vorrat (Map Grundbestandteil Menge)
-  deriving (Eq, Show)
-
 instance Semigroup Vorrat where
   (Vorrat map1) <> (Vorrat map2) =
     Vorrat (unionWith (<>) map1 map2)
@@ -139,44 +190,10 @@ instance Semigroup Vorrat where
 instance Monoid Vorrat where
   mempty = leererVorrat
 
-leererVorrat = Vorrat Map.empty
-
-vorratAus :: Grundbestandteil -> Menge -> Vorrat
-vorratAus grundbestandteil menge =
-  Vorrat (Map.fromList [(grundbestandteil, menge)])
-
-data Event =
-    BestellungAkzeptiert Bestellung
-  | ProduktNichtGefunden Bestellung
-  | BestellungStorniert Bestellung
-  | BestellungBestaetigt Bestellung
-  | GrundbestandteilEntnommen Bestellung Grundbestandteil Menge
-  | NichtGenugVorrat Bestellung
-  | ProduktGemischt Bestellung
-  | BestellungVersandt Bestellung
-  deriving (Show)
-
-
-
-tensid = Tensid (Farbe "rot") (PH 5.5)
-schuppenmittel = Pflegestoff (Farbe "gelb") Schuppen
-
-derKatalog = Map.fromList [
-    (ProduktName "Duschgel", Einfach tensid),
-    (ProduktName "Schuppenshampoo", Gemisch 0.9 (Einfach tensid) 0.1 (Einfach schuppenmittel))
-  ]
-
-derVorrat = Vorrat (Map.fromList [
-    (tensid, Menge 10), (schuppenmittel, Menge 1)
-  ])
-
-bestellungDuschgel = Entitaet (Id 1) (BestellDaten (ProduktName "Duschgel") (Menge 1))
-bestellungShampoo = Entitaet (Id 2) (BestellDaten (ProduktName "Schuppenshampoo") (Menge 1))
-bestellungShampooZuViel = Entitaet (Id 3) (BestellDaten (ProduktName "Schuppenshampoo") (Menge 20))
-bestellungUnbekannt = Entitaet (Id 4) (BestellDaten (ProduktName "Erdbeermilch") (Menge 1))
-
 bestelldatenUnbekannt = BestellDaten (ProduktName "Erdbeermilch") (Menge 1)
 bestelldatenShampoo = BestellDaten (ProduktName "Schuppenshampoo") (Menge 1)
+
+-- Fold über Events
 
 eventEffektAufVorrat :: Vorrat -> Event -> Vorrat
 eventEffektAufVorrat vorrat (GrundbestandteilEntnommen bestellung grundbestandteil menge) =
