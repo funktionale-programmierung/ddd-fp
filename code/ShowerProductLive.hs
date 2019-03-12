@@ -94,7 +94,7 @@ data Event =
   | BestellungBestaetigt Bestellung
   | GrundbestandteilEntnommen Bestellung Grundbestandteil Menge
   | NichtGenugVorrat Bestellung
-  | ProduktMixturt Bestellung
+  | ProduktGemischt Bestellung
   | BestellungVersandt Bestellung
   deriving (Show)
 

@@ -96,7 +96,7 @@ data Event =
   | BestellungBestaetigt Bestellung
   | GrundbestandteilEntnommen Bestellung Grundbestandteil Menge
   | NichtGenugVorrat Bestellung
-  | ProduktMixturt Bestellung
+  | ProduktGemischt Bestellung
   | BestellungVersandt Bestellung
   deriving (Show)
 
@@ -122,7 +122,7 @@ liefereBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt 
   let benoetigterVorrat@(Vorrat bestandteile) = benoetigterVorratFuer waschProdukt menge
   in
   if (vorratIstAusreichendFuer benoetigterVorrat gesamtVorrat) then
-    (fmap (uncurry (GrundbestandteilEntnommen bestellung)) (Map.toList bestandteile)) ++ [ProduktMixturt bestellung, BestellungVersandt bestellung]
+    (fmap (uncurry (GrundbestandteilEntnommen bestellung)) (Map.toList bestandteile)) ++ [ProduktGemischt bestellung, BestellungVersandt bestellung]
   else
     [NichtGenugVorrat bestellung, BestellungStorniert bestellung]
 
