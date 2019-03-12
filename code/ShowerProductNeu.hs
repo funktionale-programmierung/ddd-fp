@@ -83,6 +83,10 @@ derVorrat = Vorrat (Map.fromList [
     (tensid, Menge 10), (schuppenmittel, Menge 1)
   ])
 
+vorratAus :: Grundbestandteil -> Menge -> Vorrat
+vorratAus grundbestandteil menge =
+  Vorrat (Map.fromList [(grundbestandteil, menge)])
+
 -- Events
 
 data Event =
@@ -97,10 +101,6 @@ data Event =
   deriving (Show)
 
 -- Aggregat
-
-vorratAus :: Grundbestandteil -> Menge -> Vorrat
-vorratAus grundbestandteil menge =
-  Vorrat (Map.fromList [(grundbestandteil, menge)])
 
 bestelle :: Bestellung -> Vorrat -> Katalog -> [Event]
 bestelle bestellung aktuellerVorrat katalog =
