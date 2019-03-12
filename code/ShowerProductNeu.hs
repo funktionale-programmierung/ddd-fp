@@ -9,7 +9,7 @@ import qualified Data.Map.Strict (Map)
 import qualified Data.Monoid (Monoid)
 import Data.Monoid as Monoid
 
--- Domänenmodellierung / Value Objects
+-- Domänenmodellierung / Value Objects (Mike)
 
 data Haartyp = Fettig | Trocken | Normal | Schuppen
   deriving (Eq, Show, Ord)
@@ -29,7 +29,9 @@ data WaschProdukt =
 tensid = Tensid (PH 5.5)
 schuppenmittel = Pflegestoff Schuppen
 
--- Bestellung
+-- Event Storming (Nicole)
+
+-- Bestellung (Mike)
 
 type Bestellung = Entitaet BestellDaten
 
@@ -51,7 +53,7 @@ instance Eq (Entitaet a) where
 
 data Id = Id Int deriving (Eq, Show)
 
--- zurück zur Bestellung
+-- zurück zur Bestellung (Mike)
 
 data ProduktName = ProduktName String
   deriving (Eq, Show, Ord)
@@ -65,7 +67,7 @@ bestellungShampoo = Entitaet (Id 2) (BestellDaten (ProduktName "Schuppenshampoo"
 bestellungShampooZuViel = Entitaet (Id 3) (BestellDaten (ProduktName "Schuppenshampoo") (Menge 20))
 bestellungUnbekannt = Entitaet (Id 4) (BestellDaten (ProduktName "Erdbeermilch") (Menge 1))
 
--- Katalog
+-- Katalog (Mike)
 
 type Katalog = Map ProduktName WaschProdukt
 
@@ -74,7 +76,7 @@ derKatalog = Map.fromList [
     (ProduktName "Schuppenshampoo", Mixtur 0.9 (Einfach tensid) (Einfach schuppenmittel))
   ]
 
--- Vorrat
+-- Vorrat (Mike)
 
 data Vorrat = Vorrat (Map Grundbestandteil Menge)
   deriving (Eq, Show)
@@ -85,7 +87,7 @@ derVorrat = Vorrat (Map.fromList [
     (tensid, Menge 10), (schuppenmittel, Menge 1)
   ])
 
--- Events
+-- Events (Nicole)
 
 data Event =
     BestellungAkzeptiert Bestellung
@@ -98,7 +100,7 @@ data Event =
   | BestellungVersandt Bestellung
   deriving (Show)
 
--- Aggregat
+-- Aggregat (Nicole)
 
 bestelle :: Bestellung -> Vorrat -> Katalog -> [Event]
 bestelle bestellung aktuellerVorrat katalog =
@@ -141,6 +143,7 @@ vorratIstAusreichendFuer benoetigt gesamt =
   istVorratKorrekt (entnehmeVorrat gesamt benoetigt)
 
 -- Invariante für den Vorrat
+-- :info Map.foldr
 istVorratKorrekt :: Vorrat -> Bool
 istVorratKorrekt (Vorrat vorrat) =
   Map.foldr (\ (Menge menge) istKorrekt -> istKorrekt && (menge >= 0)) True vorrat
@@ -160,6 +163,8 @@ entnehmeGrundbestandteil (Vorrat vorrat) grundbestandteil (Menge menge) =
                     Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
        grundbestandteil vorrat)
 
+-- Nicole: "strubbelig"
+-- Mike: Schritt zurück, ... Publikum
 -- alternative Version entnehmeVorrat mit Gruppen
 
 entnehmeVorrat :: Vorrat -> Vorrat -> Vorrat
@@ -187,6 +192,7 @@ instance Semigroup Vorrat where
 instance Monoid Vorrat where
   mempty = leererVorrat
 
+-- Wenn Zeit ist:
 -- Fold über Events
 
 eventsEffektAufVorrat :: Vorrat -> [Event] -> Vorrat
@@ -204,7 +210,7 @@ vorratAus :: Grundbestandteil -> Menge -> Vorrat
 vorratAus grundbestandteil menge =
   Vorrat (Map.fromList [(grundbestandteil, menge)])
 
--- Version mit Repository / Monade
+-- Version mit Repository / Monade (Mike)
 
 bestelle' :: InterfaceIdGenerator m => BestellDaten -> Vorrat -> Katalog -> m [Event]
 bestelle' bestelldaten aktuellerVorrat katalog =
@@ -217,7 +223,7 @@ bestelldatenShampoo = BestellDaten (ProduktName "Schuppenshampoo") (Menge 1)
 class Monad m => InterfaceIdGenerator m where
   newId :: m Id
 
------- Application Layer
+------ Application Layer (Mike)
 
 baueEntitaet :: InterfaceIdGenerator m => d -> m (Entitaet d)
 baueEntitaet daten =
