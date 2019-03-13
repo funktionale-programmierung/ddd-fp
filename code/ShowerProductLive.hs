@@ -98,7 +98,7 @@ data Event =
   | ProduktNichtGefunden Bestellung
   | BestellungStorniert Bestellung
   | BestellungBestaetigt Bestellung
-  | GrundbestandteilEntnommen Bestellung Grundbestandteil Menge
+  | GrundbestandteilEntnommen Grundbestandteil Menge
   | NichtGenugVorrat Bestellung
   | ProduktGemischt Bestellung
   | BestellungVersandt Bestellung
@@ -178,7 +178,7 @@ eventsEffektAufVorrat vorrat events =
     vorrat events
 
 eventEffektAufVorrat :: Vorrat -> Event -> Vorrat
-eventEffektAufVorrat vorrat (GrundbestandteilEntnommen bestellung grundbestandteil menge) =
+eventEffektAufVorrat vorrat (GrundbestandteilEntnommen grundbestandteil menge) =
   entnehmeVorrat vorrat (vorratAus grundbestandteil menge)
 eventEffektAufVorrat vorrat _ = vorrat
 
