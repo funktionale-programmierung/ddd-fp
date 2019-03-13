@@ -34,6 +34,12 @@ data WaschProdukt =
 tensid = Tensid (PH 5.5)
 schuppenmittel = Pflegestoff Schuppen
 
+tensidAnteil :: WaschProdukt -> Double
+tensidAnteil (Einfach (Tensid _)) = 1.0
+tensidAnteil (Einfach (Pflegestoff _)) = 0.0
+tensidAnteil (Mixtur menge1 produkt1 produkt2) =
+  menge1 * (tensidAnteil produkt1) + (1 - menge1) * (tensidAnteil produkt2)
+
 -- * Entitäten
 -- ** Bestellung
 
