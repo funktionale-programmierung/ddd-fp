@@ -126,8 +126,10 @@ findeProdukt produktname katalog = Map.lookup produktname katalog
 
 -- ** liefereBestellung
 liefereBestellung :: Bestellung -> WaschProdukt -> Vorrat -> [Event]
-liefereBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt gesamtVorrat =
-  let benoetigterVorrat@(Vorrat bestandteile) = benoetigterVorratFuer waschProdukt menge
+liefereBestellung bestellung waschProdukt gesamtVorrat =
+  let Entitaet _ (BestellDaten _ menge) = bestellung
+      benoetigterVorrat = benoetigterVorratFuer waschProdukt menge
+      Vorrat bestandteile = benoetigterVorrat
   in
   if (vorratIstAusreichendFuer benoetigterVorrat gesamtVorrat) then
     undefined -- GrundbestandteilEntnommen für jeden Grundbestandteil

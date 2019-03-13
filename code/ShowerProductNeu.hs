@@ -113,8 +113,9 @@ bestelle bestellung aktuellerVorrat katalog =
   [BestellungAkzeptiert bestellung] ++ (verarbeiteBestellung bestellung aktuellerVorrat katalog)
 
 verarbeiteBestellung :: Bestellung -> Vorrat -> Katalog -> [Event]
-verarbeiteBestellung bestellung@((Entitaet _ (BestellDaten produktname _))) gesamtVorrat katalog =
-  let gewuenschtesProdukt = findeProdukt produktname katalog
+verarbeiteBestellung bestellung gesamtVorrat katalog =
+  let Entitaet _ (BestellDaten produktname _) = bestellung
+      gewuenschtesProdukt = findeProdukt produktname katalog
   in
   case gewuenschtesProdukt of
     Nothing -> [ProduktNichtGefunden bestellung, BestellungStorniert bestellung]
@@ -124,8 +125,10 @@ findeProdukt :: ProduktName -> Katalog -> (Maybe WaschProdukt)
 findeProdukt produktname katalog = Map.lookup produktname katalog
 
 liefereBestellung :: Bestellung -> WaschProdukt -> Vorrat -> [Event]
-liefereBestellung bestellung@((Entitaet _ (BestellDaten _ menge))) waschProdukt gesamtVorrat =
-  let benoetigterVorrat@(Vorrat bestandteile) = benoetigterVorratFuer waschProdukt menge
+liefereBestellung bestellung waschProdukt gesamtVorrat =
+  let Entitaet _ (BestellDaten _ menge) = bestellung
+      benoetigterVorrat = benoetigterVorratFuer waschProdukt menge
+      Vorrat bestandteile = benoetigterVorrat
   in
   if (vorratIstAusreichendFuer benoetigterVorrat gesamtVorrat) then
     (fmap (uncurry GrundbestandteilEntnommen) (Map.toList bestandteile)) ++ [ProduktGemischt bestellung, BestellungVersandt bestellung]
