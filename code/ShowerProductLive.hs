@@ -33,6 +33,8 @@ data WaschProdukt =
 -- ** Beispiele
 tensid = Tensid (PH 5.5)
 schuppenmittel = Pflegestoff Schuppen
+duschgel = Mixtur 0.5 (Einfach tensid) (Einfach schuppenmittel)
+luxusDuschgel = Mixtur 0.7 duschgel (Einfach (Pflegestoff Trocken))
 
 tensidAnteil :: WaschProdukt -> Double
 tensidAnteil (Einfach (Tensid _)) = 1.0
@@ -114,11 +116,22 @@ data Event =
 
 -- ** bestelle
 bestelle :: Bestellung -> Vorrat -> Katalog -> [Event]
-bestelle bestellung aktuellerVorrat katalog = undefined
+bestelle bestellung aktuellerVorrat katalog =
+  [BestellungAkzeptiert bestellung] ++
+  (verarbeiteBestellung bestellung aktuellerVorrat katalog) 
+
 
 -- ** verarbeiteBestellung
 verarbeiteBestellung :: Bestellung -> Vorrat -> Katalog -> [Event]
-verarbeiteBestellung bestellung gesamtVorrat katalog = undefined
+verarbeiteBestellung bestellung gesamtVorrat katalog =
+  let (Entitaet _ (BestellDaten produktname _)) = bestellung
+      maybeGewuenschtesProdukt = findeProdukt produktname katalog
+  in
+    case maybeGewuenschtesProdukt of
+      Nothing -> [ProduktNichtGefunden bestellung,
+                  BestellungStorniert bestellung]
+      Just gewuenschtesProdukt -> [BestellungBestaetigt bestellung]
+                                  ++ (liefereBestellung bestellung gewuenschtesProdukt gesamtVorrat)
 
 -- ** findeProdukt
 findeProdukt :: ProduktName -> Katalog -> (Maybe WaschProdukt)
@@ -132,7 +145,8 @@ liefereBestellung bestellung waschProdukt gesamtVorrat =
       Vorrat bestandteile = benoetigterVorrat
   in
   if (vorratIstAusreichendFuer benoetigterVorrat gesamtVorrat) then
-    undefined -- GrundbestandteilEntnommen für jeden Grundbestandteil
+    Prelude.map (uncurry GrundbestandteilEntnommen) (Map.toList bestandteile)
+      ++ [ProduktGemischt bestellung, BestellungVersandt bestellung]
   else
     [NichtGenugVorrat bestellung, BestellungStorniert bestellung]
 
@@ -159,11 +173,12 @@ vorratIstAusreichendFuer benoetigt gesamt =
 -- ** Invariante für den Vorrat
 istVorratKorrekt :: Vorrat -> Bool
 istVorratKorrekt (Vorrat vorrat) =
-  undefined
+  Map.foldr (\ (Menge menge) bisherKorrekt -> menge >= 0 && bisherKorrekt)
+      True vorrat
 
 -- ** entnehmeVorrat
-entnehmeVorrat :: Vorrat -> Vorrat -> Vorrat
-entnehmeVorrat gesamt (Vorrat benoetigt) =
+entnehmeVorrat' :: Vorrat -> Vorrat -> Vorrat
+entnehmeVorrat' gesamt (Vorrat benoetigt) =
   Map.foldrWithKey (\ grundbestandteil menge vorrat ->
                       entnehmeGrundbestandteil vorrat grundbestandteil menge)
     gesamt benoetigt
@@ -176,6 +191,33 @@ entnehmeGrundbestandteil (Vorrat vorrat) grundbestandteil (Menge menge) =
                     Nothing -> Just (Menge (- menge))
                     Just (Menge mengeVorrat) -> Just (Menge (mengeVorrat - menge)))
        grundbestandteil vorrat)
+
+entnehmeVorrat :: Vorrat -> Vorrat -> Vorrat
+entnehmeVorrat gesamt benoetigt =
+  gesamt <> (invert benoetigt)
+
+class Monoid g => Group g where
+  invert :: g -> g
+
+instance Group Vorrat where
+  invert (Vorrat bestandteile) = Vorrat (fmap invert bestandteile)
+
+instance Group Menge where
+  invert (Menge menge) = Menge (-menge)
+
+instance Monoid Menge where
+  mempty = leereMenge
+
+instance Semigroup Menge where
+  (Menge menge1) <> (Menge menge2) = Menge (menge1 + menge2)
+
+instance Monoid Vorrat where
+  mempty = leererVorrat
+
+instance Semigroup Vorrat where
+  (Vorrat bestandteile1) <> (Vorrat bestandteile2) =
+    Vorrat (Map.unionWith (<>) bestandteile1 bestandteile2)
+
 
 -- * Fold über Events
 
